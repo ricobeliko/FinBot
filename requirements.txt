@@ -1,3 +1,4 @@
-# FinBot — FASE 0 (Foundation)
-# Nenhuma dependência externa necessária nesta fase.
-# Bibliotecas adicionais (ccxt, pandas, backtesting, streamlit, etc.) serão introduzidas sob demanda nas fases posteriores.
+# FinBot — Dependências de Execução (FASE 2: Market Monitor)
+# A fonte oficial de dependências do pacote é o pyproject.toml.
+# Instalação editável recomendada com dependências:
+-e .

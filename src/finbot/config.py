@@ -1,4 +1,4 @@
-"""Configuração mínima local do FinBot para a FASE 1 (Python Core)."""
+"""Configuração local do FinBot para a FASE 2 (Market Monitor)."""
 
 from dataclasses import dataclass
 
@@ -11,6 +11,10 @@ class Config:
     environment: str = "local"
     trading_mode: str = "disabled"
     log_level: str = "INFO"
+    exchange_id: str = "binance"
+    symbol: str = "BTC/USDT"
+    timeframe: str = "1m"
+    candle_limit: int = 5
 
 
 def get_config() -> Config:

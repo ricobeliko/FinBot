@@ -40,11 +40,11 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
 
 ---
 
-### D005 — CCXT como Camada Planejada de Exchange
-- **Status**: Aceito (Planejado)
-- **Data**: FASE 0
-- **Contexto**: Acesso a dados de mercado e APIs de exchanges de criptoativos.
-- **Decisão**: Adotar a biblioteca CCXT nas fases pertinentes (a partir da FASE 2).
+### D005 — CCXT como Camada Oficial de Exchange (Adotado)
+- **Status**: Aceito (Adotado na FASE 2)
+- **Data**: FASE 0 (Planejado) / FASE 2 (Adotado)
+- **Contexto**: Acesso a dados públicos de mercado e APIs de exchanges de criptoativos.
+- **Decisão**: Adotar a biblioteca CCXT como cliente unificado para consultas públicas de mercado e futuras integrações.
 - **Motivo**: Biblioteca padrão da indústria, ativamente mantida, madura, e que oferece interface unificada para centenas de exchanges.
 
 ---

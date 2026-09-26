@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 1** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 2** está concluída.
 
 ---
 
@@ -22,10 +22,10 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 2 — Market Monitor
-- Integração da biblioteca CCXT
-- Conexão e coleta de dados públicos de mercado (tickers, orderbook, candles)
-- Operação estritamente em modo leitura; nenhum trade ou ordem
+### FASE 2 — Market Monitor (Concluída)
+- [x] Integração da biblioteca CCXT
+- [x] Conexão e coleta de dados públicos de mercado (ticker, candles) via Binance Spot (`exchange.py`)
+- [x] Operação estritamente em modo leitura; nenhum trade ou ordem
 
 ---
 

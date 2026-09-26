@@ -40,7 +40,7 @@ python -m pip install -e .
 
 ---
 
-## 5. Executar Aplicação Local
+## 5. Executar Market Monitor (FASE 2)
 
 Com o ambiente ativado:
 
@@ -48,5 +48,5 @@ Com o ambiente ativado:
 python -m finbot.main
 ```
 
-Os registros de execução são exibidos no console e gravados em `logs/finbot.log`.
+Consulta dados públicos de ticker e candles na Binance Spot (BTC/USDT). Os registros são exibidos no console e gravados em `logs/finbot.log`.
 

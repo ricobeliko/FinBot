@@ -8,11 +8,11 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 1 — Python Core.
+FASE 2 — Market Monitor.
 No trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 1 (Python Core)**. Possui configuração local mínima, logging em console e arquivo local (`logs/finbot.log`), inicialização previsível e encerramento limpo. Nenhuma exchange, rede externa, banco de dados ou estratégia está conectada.
+O projeto concluiu a **FASE 2 (Market Monitor)**. Possui consulta a dados públicos de mercado via CCXT (Binance Spot, BTC/USDT), exibição de ticker e candles recentes (1m) com rate limit ativado. Nenhuma autenticação, API key, ordem ou funcionalidade de trading existe.
 
 ---
 
@@ -54,12 +54,12 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    .\.venv\Scripts\Activate.ps1
    ```
 
-3. Instalar o projeto localmente em modo editável:
+3. Instalar o projeto localmente em modo editável com dependências:
    ```powershell
    python -m pip install -e .
    ```
 
-4. Executar a aplicação mínima:
+4. Executar o Market Monitor:
    ```powershell
    python -m finbot.main
    ```
@@ -70,6 +70,19 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    Environment: local
    Trading mode: disabled
    Status: running
+
+   Exchange: binance
+   Symbol: BTC/USDT
+
+   Last price: <valor_atual>
+   Bid: <valor_bid>
+   Ask: <valor_ask>
+
+   Recent candles (1m):
+     [AAAA-MM-DD HH:MM:SS] O: ... | H: ... | L: ... | C: ... | V: ...
+     ...
+
+   Trading: disabled
    ```
 
 ---
@@ -78,7 +91,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 
 - **FASE 0 — Foundation** (concluída): Estrutura base, documentação e aplicação mínima.
 - **FASE 1 — Python Core** (concluída): Configuração local e logging básico.
-- **FASE 2 — Market Monitor**: Integração CCXT somente leitura de dados públicos.
+- **FASE 2 — Market Monitor** (concluída): Integração CCXT somente leitura de dados públicos.
 - **FASE 3 — Strategy Engine**: Motor de sinais determinísticos.
 - **FASE 4 — Backtesting**: Testes históricos e métricas offline.
 - **FASE 5 — Paper Trading**: Simulação de ordens e carteira virtual com SQLite.
