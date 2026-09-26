@@ -92,3 +92,19 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
 - **Decisão**: Adotar a biblioteca `backtesting==0.6.6` (e `pandas==3.0.6` como dependência direta declarada) para execução de simulações locais através de `FractionalBacktest`, integrando o motor oficial `evaluate_sma_crossover` sem duplicar lógica.
 - **Licença e Implicações**: A biblioteca Backtesting.py 0.6.6 é distribuída sob licença AGPL-3.0+. A dependência foi adotada nesta fase estritamente para backtesting e simulação local, mantendo o projeto integralmente privado e restrito ao ambiente local do operador. A licença e seus requisitos de compartilhamento de código-fonte devem ser formalmente reavaliados antes de qualquer eventual distribuição pública ou comercialização do projeto.
 - **Motivo**: Ferramenta consolidada, de fácil integração com dados tabulares do pandas, semântica transparente de execução no próximo candle (mitigação intrínseca de look-ahead bias) e suporte comprovado a dimensionamento fracionado de contratos para criptoativos.
+
+---
+
+### D011 — Arquitetura de Paper Trading com Persistência SQLite Local
+- **Status**: Aceito
+- **Data**: FASE 5
+- **Contexto**: Necessidade de executar forward testing em tempo real com capital fictício, persistindo saldos e ordens simuladas entre reinicializações sem conexão autenticada com a exchange.
+- **Decisão**: Adotar a arquitetura de Paper Trading local com persistência via `sqlite3` da Python Standard Library (`storage.py` e `paper.py`):
+  - Carteira simulada mantida integralmente em banco local (`data/finbot_paper.sqlite3`).
+  - Nenhuma API key, secret ou chamada a endpoints privados de exchange.
+  - Saldo fictício inicial configurável (10000.00 USDT) persistido em tabela única.
+  - Modelo operacional Spot LONG exclusivo, limitado a uma única posição aberta por vez.
+  - Notional fixo preliminar de 100.00 USDT por operação (a ser aprimorado pelo Risk Engine na FASE 6).
+  - Execução one-shot com filtragem estrita de candles ainda em formação e deduplicação pelo timestamp do último candle fechado.
+  - Transações atômicas com rollback em caso de falha, garantindo consistência entre carteira, posição e histórico.
+- **Motivo**: Atendimento pleno à arquitetura local-first sem dependências externas adicionais (zero novas bibliotecas), confiabilidade transacional garantida pelo SQLite e isolamento completo contra riscos operacionais no mercado real.

@@ -8,13 +8,13 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 4 — Backtesting.
+FASE 5 — Paper Trading.
 No real trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 4 (Backtesting)**. Além da consulta a dados públicos de mercado via CCXT (Binance Spot, BTC/USDT) e cálculo determinístico de sinais operacionais (`BUY`, `SELL`, `HOLD`), o FinBot agora executa backtests históricos reproduzíveis via Backtesting.py sobre datasets locais com métricas consolidadas (retorno total, Buy & Hold, trades, win rate, drawdown e profit factor).
+O projeto concluiu a **FASE 5 (Paper Trading)**. O FinBot executa simulações de negociação em tempo real (forward testing) com saldo fictício e persistência em banco SQLite local (`data/finbot_paper.sqlite3`). As operações são geradas estritamente a partir de dados públicos de mercado via CCXT, aplicando regras de deduplicação de candles e consistência contábil (ACID), sem qualquer envio de ordens reais a exchanges.
 
-> **Importante**: Backtest é estritamente simulação histórica local (SIMULATION ONLY). Nenhuma ordem, carteira, saldo real ou conectividade de envio a exchanges existe.
+> **Importante**: Paper Trading utiliza capital exclusivamente fictício. Nenhuma ordem real é enviada e nenhuma credencial de API é utilizada.
 
 ---
 
@@ -134,6 +134,21 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    ==================================================
    ```
 
+6. Executar o Paper Trading (forward testing com capital fictício):
+   ```powershell
+   python -m finbot.paper
+   ```
+
+   Consultar o status da conta e trades simulados (offline):
+   ```powershell
+   python -m finbot.paper --status
+   ```
+
+   Resetar a conta e o histórico simulado:
+   ```powershell
+   python -m finbot.paper --reset --yes
+   ```
+
 ---
 
 ## Roadmap Resumido
@@ -143,7 +158,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 2 — Market Monitor** (concluída): Integração CCXT somente leitura de dados públicos.
 - **FASE 3 — Strategy Engine** (concluída): Motor de sinais determinísticos (SMA Crossover).
 - **FASE 4 — Backtesting** (concluída): Simulação reproduzível sobre dataset local e métricas.
-- **FASE 5 — Paper Trading**: Simulação de ordens e carteira virtual com SQLite.
+- **FASE 5 — Paper Trading** (concluída): Simulação de ordens e carteira virtual com SQLite.
 - **FASE 6 — Risk Engine**: Limites, validações e kill switch.
 - **FASE 7 — Dashboard Local**: Acompanhamento visual via localhost.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).

@@ -69,7 +69,28 @@ python -m finbot.backtest --refresh
 
 ---
 
-## 7. Executar Testes Unitários
+## 7. Executar Paper Trading (FASE 5)
+
+Com o ambiente ativado:
+
+Executa um ciclo one-shot de simulação em tempo real sobre dados públicos:
+```powershell
+python -m finbot.paper
+```
+
+Consulta o saldo e o histórico da carteira simulada sem acessar a internet:
+```powershell
+python -m finbot.paper --status
+```
+
+Restaura o saldo inicial fictício (10000.00 USDT) e zera as operações simuladas:
+```powershell
+python -m finbot.paper --reset --yes
+```
+
+---
+
+## 8. Executar Testes Unitários
 
 ```powershell
 python -m unittest discover tests
@@ -79,7 +100,7 @@ Executa toda a bateria de testes unitários determinísticos (sem conexão de in
 
 ---
 
-## 8. Validar Compilação do Código
+## 9. Validar Compilação do Código
 
 ```powershell
 python -m compileall src

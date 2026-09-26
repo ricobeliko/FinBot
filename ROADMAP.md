@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 4** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 5** está concluída.
 
 ---
 
@@ -46,10 +46,13 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 5 — Paper Trading
-- Simulação de carteira com saldo fictício em tempo real
-- Execução simulada de ordens com cálculo de slippage e taxas estimadas
-- Persistência das operações em banco local SQLite
+### FASE 5 — Paper Trading (Concluída)
+- [x] Simulação de carteira com saldo fictício local e persistente via SQLite (`data/finbot_paper.sqlite3`)
+- [x] Execução simulada forward testing em tempo real com capital fictício (`paper.py`)
+- [x] Modelo Spot LONG exclusivo (notional técnico 100 USDT, comissão 0.10%)
+- [x] Filtragem de candles em formação e deduplicação pelo timestamp do último candle fechado
+- [x] Comandos CLI para execução de ciclo, consulta offline (`--status`) e reset seguro (`--reset --yes`)
+- [x] Nenhuma credencial de API e nenhuma ordem real enviada à exchange
 
 ---
 

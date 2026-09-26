@@ -22,6 +22,12 @@ class Config:
     backtest_timeframe: str = "5m"
     backtest_candle_limit: int = 500
     backtest_data_dir: str = "data/backtest"
+    paper_initial_cash: float = 10000.0
+    paper_trade_notional: float = 100.0
+    paper_commission: float = 0.001
+    paper_db_path: str = "data/finbot_paper.sqlite3"
+    paper_timeframe: str = "1m"
+    paper_candle_limit: int = 20
 
 
 def get_config() -> Config:
