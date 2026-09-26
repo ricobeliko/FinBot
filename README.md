@@ -8,11 +8,13 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 2 — Market Monitor.
+FASE 3 — Strategy Engine.
 No trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 2 (Market Monitor)**. Possui consulta a dados públicos de mercado via CCXT (Binance Spot, BTC/USDT), exibição de ticker e candles recentes (1m) com rate limit ativado. Nenhuma autenticação, API key, ordem ou funcionalidade de trading existe.
+O projeto concluiu a **FASE 3 (Strategy Engine)**. Possui consulta a dados públicos de mercado via CCXT (Binance Spot, BTC/USDT) e cálculo determinístico de sinais operacionais (`BUY`, `SELL`, `HOLD`) por cruzamento de médias móveis simples (SMA 5 / SMA 10) sobre histórico recente de candles.
+
+> **Importante**: Sinais são puramente informativos e matemáticos. Nenhuma ordem, carteira, saldo ou funcionalidade de trading existe.
 
 ---
 
@@ -59,7 +61,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    python -m pip install -e .
    ```
 
-4. Executar o Market Monitor:
+4. Executar a aplicação:
    ```powershell
    python -m finbot.main
    ```
@@ -75,12 +77,16 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    Symbol: BTC/USDT
 
    Last price: <valor_atual>
-   Bid: <valor_bid>
-   Ask: <valor_ask>
+   Candles loaded: 20
 
-   Recent candles (1m):
-     [AAAA-MM-DD HH:MM:SS] O: ... | H: ... | L: ... | C: ... | V: ...
-     ...
+   Strategy:
+   SMA 5 / SMA 10
+
+   Short MA: <valor_curto>
+   Long MA: <valor_longo>
+
+   Signal: HOLD (ou BUY / SELL conforme o mercado)
+   Reason: <motivo_do_sinal>
 
    Trading: disabled
    ```
@@ -92,7 +98,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 0 — Foundation** (concluída): Estrutura base, documentação e aplicação mínima.
 - **FASE 1 — Python Core** (concluída): Configuração local e logging básico.
 - **FASE 2 — Market Monitor** (concluída): Integração CCXT somente leitura de dados públicos.
-- **FASE 3 — Strategy Engine**: Motor de sinais determinísticos.
+- **FASE 3 — Strategy Engine** (concluída): Motor de sinais determinísticos (SMA Crossover).
 - **FASE 4 — Backtesting**: Testes históricos e métricas offline.
 - **FASE 5 — Paper Trading**: Simulação de ordens e carteira virtual com SQLite.
 - **FASE 6 — Risk Engine**: Limites, validações e kill switch.

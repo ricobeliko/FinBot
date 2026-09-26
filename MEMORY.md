@@ -1,18 +1,21 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 2 — Market Monitor concluída.
+FASE 3 — Strategy Engine concluída.
 
 ### Implementado
-- CCXT integrado para dados públicos de mercado
-- market data público (`exchange.py`)
-- BTC/USDT como par de validação inicial
-- consulta e exibição de ticker público (last, bid, ask, timestamp)
-- consulta de candles públicos (OHLCV, 1m) com rate limit ativado
-- tratamento de erros operacionais (`ExchangeError`, BadSymbol, NetworkError)
+- Signal BUY/SELL/HOLD (`strategy.py`)
+- estratégia determinística SMA crossover (short=5, long=10)
+- cálculo puramente matemático na Standard Library (sem pandas/numpy)
+- detecção de evento de cruzamento (comparação de candle anterior vs atual)
+- testes unitários determinísticos isolados (`test_strategy.py`)
+- orquestração no `main.py` com carregamento de 20 candles
 
 ### Trading
 disabled
+
+### Orders
+inexistentes
 
 ### API credentials
 nenhuma
@@ -37,6 +40,7 @@ nenhuma
 - nenhuma conta autenticada
 - nenhuma API key / secret
 - nenhum saldo privado consultado
+- nenhuma ordem criada ou executada
 - nenhum paper trade
 - nenhum live trade
 - nenhum dinheiro real envolvido
@@ -50,9 +54,10 @@ nenhuma
 - D006: SQLite planejado para armazenamento local.
 - D007: IA não toma decisões financeiras (regras determinísticas).
 - D008: Live Trading estritamente bloqueado por padrão.
+- D009: Estratégia determinística com cruzamento de médias (SMA Crossover).
 
 ## Último checkpoint
-Market Monitor funcional (FASE 2): consulta pública de ticker e candles via CCXT (Binance Spot, BTC/USDT), rate limit ativo, sem credenciais e trading disabled.
+Strategy Engine funcional (FASE 3): cálculo determinístico de sinais BUY/SELL/HOLD via SMA Crossover, cobertura de testes unitários, isolado de rede e com trading disabled.
 
 ## Próxima fase
-FASE 3 — Strategy Engine (sinais determinísticos BUY/SELL/HOLD sem ordens reais).
+FASE 4 — Backtesting (dados históricos, métricas de performance e comparação com benchmark).

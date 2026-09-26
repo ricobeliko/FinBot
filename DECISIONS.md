@@ -73,3 +73,12 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
 - **Contexto**: Segurança patrimonial e proteção operacional contra acidentes.
 - **Decisão**: O envio de ordens reais com capital financeiro permanecerá desativado por padrão no código, exigindo configuração intencional e autorização explícita do operador em fase adequada.
 - **Motivo**: Minimização drástica do risco operacional durante desenvolvimento, testes e simulações.
+
+---
+
+### D009 — Estratégia Determinística com Cruzamento de Médias (SMA Crossover)
+- **Status**: Aceito
+- **Data**: FASE 3
+- **Contexto**: Implementação do primeiro motor de estratégia (Strategy Engine) para validação arquitetural.
+- **Decisão**: Adotar a estratégia de cruzamento de médias móveis simples (SMA curta vs SMA longa) implementada exclusivamente com a Standard Library do Python, desacoplada de CCXT e de bibliotecas externas pesadas (sem pandas, numpy ou TA-Lib).
+- **Motivo**: Determinismo estrito, cálculo matemático simples e transparente, facilidade de testes unitários isolados e preservação do princípio de não adicionar dependências desnecessárias.

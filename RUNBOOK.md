@@ -40,7 +40,7 @@ python -m pip install -e .
 
 ---
 
-## 5. Executar Market Monitor (FASE 2)
+## 5. Executar Aplicação (Market Monitor + Strategy Engine - FASE 3)
 
 Com o ambiente ativado:
 
@@ -48,5 +48,5 @@ Com o ambiente ativado:
 python -m finbot.main
 ```
 
-Consulta dados públicos de ticker e candles na Binance Spot (BTC/USDT). Os registros são exibidos no console e gravados em `logs/finbot.log`.
+Consulta dados públicos de ticker e 20 candles de 1m na Binance Spot (BTC/USDT) e calcula o sinal operacional determinístico (`BUY`, `SELL`, `HOLD`) por cruzamento de médias (SMA 5 / SMA 10). Os registros são exibidos no console e gravados em `logs/finbot.log`.
 

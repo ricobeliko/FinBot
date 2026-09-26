@@ -1,4 +1,4 @@
-"""Configuração local do FinBot para a FASE 2 (Market Monitor)."""
+"""Configuração local do FinBot para a FASE 3 (Strategy Engine)."""
 
 from dataclasses import dataclass
 
@@ -14,7 +14,9 @@ class Config:
     exchange_id: str = "binance"
     symbol: str = "BTC/USDT"
     timeframe: str = "1m"
-    candle_limit: int = 5
+    candle_limit: int = 20
+    short_window: int = 5
+    long_window: int = 10
 
 
 def get_config() -> Config:

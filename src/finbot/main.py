@@ -1,4 +1,4 @@
-"""Ponto de entrada do FinBot para a FASE 2 (Market Monitor)."""
+"""Ponto de entrada do FinBot para a FASE 3 (Strategy Engine)."""
 
 import sys
 
@@ -11,10 +11,11 @@ from finbot.exchange import (
     fetch_ticker,
 )
 from finbot.logging_setup import setup_logging
+from finbot.strategy import evaluate_sma_crossover
 
 
 def run(config: Config) -> int:
-    """Executa o ciclo de vida do Market Monitor (consulta ticker e candles públicos)."""
+    """Executa o ciclo de vida da aplicação (Market Monitor + Strategy Engine)."""
     logger = setup_logging(log_level=config.log_level)
 
     # Exibição inicial
@@ -48,9 +49,6 @@ def run(config: Config) -> int:
         )
 
         print(f"Last price: {ticker.last}", flush=True)
-        print(f"Bid: {ticker.bid}", flush=True)
-        print(f"Ask: {ticker.ask}", flush=True)
-        print(flush=True)
 
         # Consulta de candles públicos
         candles = fetch_candles(
@@ -64,14 +62,40 @@ def run(config: Config) -> int:
             len(candles),
             config.timeframe,
         )
-
-        print(f"Recent candles ({config.timeframe}):", flush=True)
-        for candle in candles:
-            print(
-                f"  [{candle.formatted_time}] O: {candle.open} | H: {candle.high} | L: {candle.low} | C: {candle.close} | V: {candle.volume}",
-                flush=True,
-            )
+        print(f"Candles loaded: {len(candles)}", flush=True)
         print(flush=True)
+
+        # Avaliação da estratégia determinística (SMA Crossover)
+        logger.info(
+            "Executando estratégia SMA Crossover (%d/%d)...",
+            config.short_window,
+            config.long_window,
+        )
+        result = evaluate_sma_crossover(
+            candles,
+            short_window=config.short_window,
+            long_window=config.long_window,
+        )
+        logger.info(
+            "Estratégia executada. Sinal: %s. Motivo: %s.",
+            result.signal.value,
+            result.reason,
+        )
+
+        print("Strategy:", flush=True)
+        print(f"SMA {config.short_window} / SMA {config.long_window}", flush=True)
+        print(flush=True)
+
+        short_ma_str = f"{result.short_ma:.2f}" if result.short_ma is not None else "N/A"
+        long_ma_str = f"{result.long_ma:.2f}" if result.long_ma is not None else "N/A"
+        print(f"Short MA: {short_ma_str}", flush=True)
+        print(f"Long MA: {long_ma_str}", flush=True)
+        print(flush=True)
+
+        print(f"Signal: {result.signal.value}", flush=True)
+        print(f"Reason: {result.reason}", flush=True)
+        print(flush=True)
+
         print("Trading: disabled", flush=True)
     finally:
         close_exchange(exchange)
@@ -89,6 +113,12 @@ def main(config: Config | None = None) -> int:
         print(f"\nErro no Market Monitor: {exc}", file=sys.stderr, flush=True)
         logger = setup_logging()
         logger.error("Erro no Market Monitor: %s", exc)
+        logger.info("FinBot stopped.")
+        return 1
+    except ValueError as exc:
+        print(f"\nErro de configuração da estratégia: {exc}", file=sys.stderr, flush=True)
+        logger = setup_logging()
+        logger.error("Erro de configuração da estratégia: %s", exc)
         logger.info("FinBot stopped.")
         return 1
     except KeyboardInterrupt:

@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 2** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 3** está concluída.
 
 ---
 
@@ -29,10 +29,10 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 3 — Strategy Engine
-- Mecanismo determinístico de sinais (`BUY`, `SELL`, `HOLD`)
-- Avaliação de regras matemáticas e indicadores técnicos
-- Nenhuma emissão de ordens reais
+### FASE 3 — Strategy Engine (Concluída)
+- [x] Mecanismo determinístico de sinais (`BUY`, `SELL`, `HOLD`)
+- [x] Avaliação matemática por cruzamento de médias móveis simples (SMA 5 / SMA 10 em `strategy.py`)
+- [x] Nenhuma emissão de ordens reais e trading desativado
 
 ---
 
