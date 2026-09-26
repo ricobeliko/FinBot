@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 3** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 4** está concluída.
 
 ---
 
@@ -36,10 +36,13 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 4 — Backtesting
-- Ingestão e processamento de bases históricas
-- Simulação offline de performance e métricas (drawdown, Sharpe, win rate)
-- Comparação com benchmarks simples (Buy & Hold)
+### FASE 4 — Backtesting (Concluída)
+- [x] Ingestão e salvamento de dataset histórico local reproduzível (`binance_BTCUSDT_5m.json`)
+- [x] Simulação offline de performance e métricas via Backtesting.py (`backtest.py`)
+- [x] Reutilização direta da lógica de estratégia sem duplicação (`FinBotSMAStrategy`)
+- [x] Mitigação de look-ahead bias com execução simulada na abertura do candle subsequente
+- [x] Comparação de desempenho com Buy & Hold e apresentação em terminal
+- [x] Simulação estritamente local; nenhuma ordem enviada a exchanges
 
 ---
 

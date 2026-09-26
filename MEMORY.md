@@ -1,21 +1,23 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 3 — Strategy Engine concluída.
+FASE 4 — Backtesting concluída.
 
 ### Implementado
-- Signal BUY/SELL/HOLD (`strategy.py`)
-- estratégia determinística SMA crossover (short=5, long=10)
-- cálculo puramente matemático na Standard Library (sem pandas/numpy)
-- detecção de evento de cruzamento (comparação de candle anterior vs atual)
-- testes unitários determinísticos isolados (`test_strategy.py`)
-- orquestração no `main.py` com carregamento de 20 candles
+- dataset histórico local em `data/backtest/` com metadados completos
+- backtesting reproduzível via entrada CLI dedicada (`python -m finbot.backtest`)
+- estratégia SMA existente reutilizada sem duplicação (`FinBotSMAStrategy` adapta `evaluate_sma_crossover`)
+- simulação spot long-only (sem short, sem alavancagem, sem futuros, sem margem)
+- custos configuráveis (capital inicial 10000.0 USDT, comissão 0.10% simulação)
+- prevenção comprovada de look-ahead (execução no Open da próxima barra)
+- métricas básicas e comparação direta com Buy & Hold
+- testes unitários com dados sintéticos e cobertura ampla (`test_backtest.py`)
 
 ### Trading
-disabled
+disabled (SIMULATION ONLY)
 
 ### Orders
-inexistentes
+inexistentes (nenhuma ordem enviada a exchanges)
 
 ### API credentials
 nenhuma
@@ -31,8 +33,8 @@ nenhuma
 
 ## Arquitetura pretendida
 - Python 3.12
-- CCXT adotado (camada de mercado/exchange)
-- Backtesting.py futuramente (estudos históricos)
+- CCXT adotado (dados públicos de mercado)
+- Backtesting.py 0.6.6 adotado (simulação e estudos históricos locais)
 - SQLite futuramente (persistência local)
 - Streamlit possivelmente futuramente (dashboard local)
 
@@ -40,7 +42,7 @@ nenhuma
 - nenhuma conta autenticada
 - nenhuma API key / secret
 - nenhum saldo privado consultado
-- nenhuma ordem criada ou executada
+- nenhuma ordem real criada ou executada
 - nenhum paper trade
 - nenhum live trade
 - nenhum dinheiro real envolvido
@@ -55,9 +57,10 @@ nenhuma
 - D007: IA não toma decisões financeiras (regras determinísticas).
 - D008: Live Trading estritamente bloqueado por padrão.
 - D009: Estratégia determinística com cruzamento de médias (SMA Crossover).
+- D010: Adoção de Backtesting.py para Simulação Histórica Local (AGPL-3.0+).
 
 ## Último checkpoint
-Strategy Engine funcional (FASE 3): cálculo determinístico de sinais BUY/SELL/HOLD via SMA Crossover, cobertura de testes unitários, isolado de rede e com trading disabled.
+Backtesting reproduzível funcional (FASE 4): simulação offline de SMA Crossover sobre snapshot local de 500 candles 5m BTC/USDT, métricas apuradas, sem look-ahead, 20 testes unitários passando e trading real inexistente.
 
 ## Próxima fase
-FASE 4 — Backtesting (dados históricos, métricas de performance e comparação com benchmark).
+FASE 5 — Paper Trading (simulação de carteira virtual em tempo real com persistência SQLite).

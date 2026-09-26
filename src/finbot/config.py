@@ -17,6 +17,11 @@ class Config:
     candle_limit: int = 20
     short_window: int = 5
     long_window: int = 10
+    backtest_initial_cash: float = 10000.0
+    backtest_commission: float = 0.001
+    backtest_timeframe: str = "5m"
+    backtest_candle_limit: int = 500
+    backtest_data_dir: str = "data/backtest"
 
 
 def get_config() -> Config:

@@ -8,13 +8,13 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 3 — Strategy Engine.
-No trading functionality exists.
+FASE 4 — Backtesting.
+No real trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 3 (Strategy Engine)**. Possui consulta a dados públicos de mercado via CCXT (Binance Spot, BTC/USDT) e cálculo determinístico de sinais operacionais (`BUY`, `SELL`, `HOLD`) por cruzamento de médias móveis simples (SMA 5 / SMA 10) sobre histórico recente de candles.
+O projeto concluiu a **FASE 4 (Backtesting)**. Além da consulta a dados públicos de mercado via CCXT (Binance Spot, BTC/USDT) e cálculo determinístico de sinais operacionais (`BUY`, `SELL`, `HOLD`), o FinBot agora executa backtests históricos reproduzíveis via Backtesting.py sobre datasets locais com métricas consolidadas (retorno total, Buy & Hold, trades, win rate, drawdown e profit factor).
 
-> **Importante**: Sinais são puramente informativos e matemáticos. Nenhuma ordem, carteira, saldo ou funcionalidade de trading existe.
+> **Importante**: Backtest é estritamente simulação histórica local (SIMULATION ONLY). Nenhuma ordem, carteira, saldo real ou conectividade de envio a exchanges existe.
 
 ---
 
@@ -61,7 +61,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    python -m pip install -e .
    ```
 
-4. Executar a aplicação:
+4. Executar o Market Monitor:
    ```powershell
    python -m finbot.main
    ```
@@ -91,6 +91,49 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    Trading: disabled
    ```
 
+5. Executar o Backtest histórico reproduzível:
+   ```powershell
+   python -m finbot.backtest
+   ```
+
+   Saída esperada:
+   ```text
+   ==================================================
+   FinBot Backtest
+   ==================================================
+
+   Exchange: binance
+   Symbol: BTC/USDT
+   Timeframe: 5m
+   Candles: 500
+   Period: 2026-09-25 02:25:00 -> 2026-09-26 20:00:00
+
+   Strategy:
+   SMA 5 / SMA 10
+
+   Initial cash:
+   10000.00 USDT
+
+   Commission assumption:
+   0.10% (simulation assumption)
+
+   Results:
+
+   Final equity: 9366.42 USDT
+   Return: -6.34%
+   Buy & Hold: -0.77%
+   Trades: 29 (Wins: 3, Losses: 26)
+   Win rate: 10.34%
+   Max drawdown: -6.34%
+   Profit factor: 0.07
+
+   Trading mode:
+   SIMULATION ONLY
+
+   No real orders were sent.
+   ==================================================
+   ```
+
 ---
 
 ## Roadmap Resumido
@@ -99,7 +142,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 1 — Python Core** (concluída): Configuração local e logging básico.
 - **FASE 2 — Market Monitor** (concluída): Integração CCXT somente leitura de dados públicos.
 - **FASE 3 — Strategy Engine** (concluída): Motor de sinais determinísticos (SMA Crossover).
-- **FASE 4 — Backtesting**: Testes históricos e métricas offline.
+- **FASE 4 — Backtesting** (concluída): Simulação reproduzível sobre dataset local e métricas.
 - **FASE 5 — Paper Trading**: Simulação de ordens e carteira virtual com SQLite.
 - **FASE 6 — Risk Engine**: Limites, validações e kill switch.
 - **FASE 7 — Dashboard Local**: Acompanhamento visual via localhost.
