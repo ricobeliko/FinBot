@@ -28,6 +28,11 @@ class Config:
     paper_db_path: str = "data/finbot_paper.sqlite3"
     paper_timeframe: str = "1m"
     paper_candle_limit: int = 20
+    risk_max_position_notional: float = 100.0
+    risk_max_daily_loss: float = 50.0
+    risk_cooldown_candles: int = 1
+    risk_stop_loss_pct: float = 0.02
+    risk_kill_switch: bool = False
 
 
 def get_config() -> Config:

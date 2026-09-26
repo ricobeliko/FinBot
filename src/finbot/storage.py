@@ -47,6 +47,7 @@ class PaperTrade:
     notional: Decimal
     fee: Decimal
     realized_pnl: Decimal | None
+    exit_reason: str | None = None
 
 
 class PaperStorage:
@@ -76,7 +77,7 @@ class PaperStorage:
             conn.close()
 
     def init_db(self, initial_cash: Decimal = Decimal("10000.00")) -> None:
-        """Inicializa as tabelas do banco e cria os registros padrão se não existirem."""
+        """Inicializa as tabelas do banco e migra schema se necessário de forma idempotente."""
         with self.connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS paper_account (
@@ -109,9 +110,16 @@ class PaperStorage:
                     quantity TEXT NOT NULL,
                     notional TEXT NOT NULL,
                     fee TEXT NOT NULL,
-                    realized_pnl TEXT
+                    realized_pnl TEXT,
+                    exit_reason TEXT
                 );
             """)
+
+            # Migração idempotente: adiciona coluna exit_reason se tabela já existia sem ela
+            cur_cols = conn.execute("PRAGMA table_info(paper_trades);")
+            col_names = [r["name"] for r in cur_cols.fetchall()]
+            if "exit_reason" not in col_names:
+                conn.execute("ALTER TABLE paper_trades ADD COLUMN exit_reason TEXT;")
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS paper_state (
@@ -189,7 +197,7 @@ class PaperStorage:
         """Retorna histórico de trades simulados em ordem decrescente."""
         with self.connection() as conn:
             cur = conn.execute(
-                "SELECT id, timestamp, candle_timestamp, symbol, side, price, quantity, notional, fee, realized_pnl "
+                "SELECT id, timestamp, candle_timestamp, symbol, side, price, quantity, notional, fee, realized_pnl, exit_reason "
                 "FROM paper_trades ORDER BY id DESC LIMIT ?;",
                 (limit,),
             )
@@ -206,6 +214,7 @@ class PaperStorage:
                     notional=Decimal(r["notional"]),
                     fee=Decimal(r["fee"]),
                     realized_pnl=Decimal(r["realized_pnl"]) if r["realized_pnl"] is not None else None,
+                    exit_reason=r["exit_reason"] if "exit_reason" in r.keys() else None,
                 )
                 for r in rows
             ]
@@ -256,7 +265,7 @@ class PaperStorage:
             # 3. Insere trade
             cur = conn.execute(
                 "INSERT INTO paper_trades (timestamp, candle_timestamp, symbol, side, price, quantity, "
-                "notional, fee, realized_pnl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                "notional, fee, realized_pnl, exit_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                 (
                     trade.timestamp,
                     trade.candle_timestamp,
@@ -267,6 +276,7 @@ class PaperStorage:
                     str(trade.notional),
                     str(trade.fee),
                     str(trade.realized_pnl) if trade.realized_pnl is not None else None,
+                    trade.exit_reason,
                 ),
             )
             trade_id = cur.lastrowid
@@ -289,10 +299,74 @@ class PaperStorage:
                 notional=trade.notional,
                 fee=trade.fee,
                 realized_pnl=trade.realized_pnl,
+                exit_reason=trade.exit_reason,
             )
 
+    def set_kill_switch(self, active: bool) -> None:
+        """Persiste o estado do kill switch no SQLite."""
+        val = "1" if active else "0"
+        with self.connection() as conn:
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('kill_switch', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (val,),
+            )
+
+    def get_kill_switch(self, default: bool = False) -> bool:
+        """Consulta o estado persistido do kill switch no SQLite."""
+        with self.connection() as conn:
+            cur = conn.execute("SELECT value FROM paper_state WHERE key = 'kill_switch';")
+            row = cur.fetchone()
+            if row:
+                return row["value"] == "1"
+            return default
+
+    def set_last_risk_block(self, code: str, reason: str) -> None:
+        """Registra no SQLite o último bloqueio de trade emitido pelo Risk Engine."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        entry = f"{code}: {reason} ({now_iso})"
+        with self.connection() as conn:
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('last_risk_block', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (entry,),
+            )
+
+    def get_last_risk_block(self) -> str | None:
+        """Retorna a descrição e horário do último bloqueio de risco registrado."""
+        with self.connection() as conn:
+            cur = conn.execute("SELECT value FROM paper_state WHERE key = 'last_risk_block';")
+            row = cur.fetchone()
+            return row["value"] if row else None
+
+    def get_last_closed_trade_candle_timestamp(self) -> int | None:
+        """Retorna o timestamp (ms) do candle em que ocorreu o último fechamento de posição (SELL)."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                "SELECT candle_timestamp FROM paper_trades WHERE side = 'SELL' ORDER BY id DESC LIMIT 1;"
+            )
+            row = cur.fetchone()
+            return int(row["candle_timestamp"]) if row else None
+
+    def get_daily_realized_loss(self, date_utc: str | None = None) -> Decimal:
+        """Retorna o P/L realizado consolidado das vendas no dia UTC informado."""
+        if date_utc is None:
+            date_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self.connection() as conn:
+            cur = conn.execute(
+                "SELECT realized_pnl FROM paper_trades WHERE side = 'SELL' AND realized_pnl IS NOT NULL "
+                "AND timestamp LIKE ?;",
+                (f"{date_utc}%",),
+            )
+            rows = cur.fetchall()
+            daily_pnl = Decimal("0.00")
+            for r in rows:
+                if r["realized_pnl"] is not None:
+                    daily_pnl += Decimal(str(r["realized_pnl"]))
+            return daily_pnl
+
     def reset_db(self, initial_cash: Decimal = Decimal("10000.00")) -> None:
-        """Reseta integralmente o ambiente fictício de Paper Trading."""
+        """Reseta integralmente o ambiente fictício de Paper Trading e o estado do Risk Engine."""
         now_iso = datetime.now(timezone.utc).isoformat()
         with self.connection() as conn:
             conn.execute(
@@ -304,4 +378,6 @@ class PaperStorage:
                 "entry_price = '0.00', entry_timestamp = '' WHERE id = 1;"
             )
             conn.execute("DELETE FROM paper_trades;")
-            conn.execute("DELETE FROM paper_state WHERE key = 'last_processed_candle_timestamp';")
+            conn.execute(
+                "DELETE FROM paper_state WHERE key IN ('last_processed_candle_timestamp', 'kill_switch', 'last_risk_block');"
+            )

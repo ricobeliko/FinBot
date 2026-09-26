@@ -1,6 +1,7 @@
-"""Módulo de execução de Paper Trading local persistente para a FASE 5.
+"""Módulo de execução de Paper Trading local persistente com Risk Engine (FASE 6).
 
 Simula compras e vendas com capital fictício sobre dados reais públicos de mercado.
+Todas as intenções operacionais passam obrigatoriamente pela validação do Risk Engine.
 Persiste estado e transações localmente no SQLite.
 NENHUMA ordem é enviada a qualquer exchange.
 """
@@ -14,6 +15,7 @@ import sys
 
 from finbot.config import Config, get_config
 from finbot.exchange import CandleData, close_exchange, create_exchange, fetch_candles, fetch_ticker
+from finbot.risk import RiskDecision, RiskDecisionCode, RiskEngine, is_cooldown_active
 from finbot.storage import PaperAccount, PaperPosition, PaperStorage, PaperTrade
 from finbot.strategy import Signal, evaluate_sma_crossover
 
@@ -72,6 +74,7 @@ class PaperCycleResult:
     position: PaperPosition
     trades_count: int
     message: str = ""
+    risk_decision: RiskDecision | None = None
 
 
 def execute_paper_cycle(
@@ -164,84 +167,39 @@ def execute_paper_cycle(
     commission_rate = Decimal(str(config.paper_commission))
     trade_price = Decimal(str(last_price))
 
-    # 5. Processamento dos sinais segundo o modelo Spot LONG
-    if eval_res.signal == Signal.BUY:
-        if position.side == "LONG":
-            storage.record_candle_processed(latest_closed.timestamp)
-            return PaperCycleResult(
-                exchange=config.exchange_id,
-                symbol=config.symbol,
-                timeframe=config.paper_timeframe,
-                closed_candle_time=latest_closed.formatted_time,
-                closed_candle_timestamp=latest_closed.timestamp,
-                signal=Signal.BUY,
-                signal_reason=eval_res.reason,
-                trade_action="BUY_IGNORED_POSITION_EXISTS",
-                executed_trade=None,
-                account=account,
-                position=position,
-                trades_count=trades_count,
-                message="BUY ignorado: posição já aberta (uma posição por vez).",
-            )
+    # 5. Avaliação pelo Risk Engine (autoridade obrigatória)
+    timeframe_ms = timeframe_to_ms(config.paper_timeframe)
+    kill_switch_active = storage.get_kill_switch(default=config.risk_kill_switch)
+    daily_pnl = storage.get_daily_realized_loss()
+    last_closed_ts = storage.get_last_closed_trade_candle_timestamp()
 
-        # Abertura de posição Spot LONG com notional fixo
-        notional = Decimal(str(config.paper_trade_notional))
-        fee = (notional * commission_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        total_cost = notional + fee
+    risk_engine = RiskEngine(config=config)
+    risk_decision = risk_engine.evaluate(
+        account=account,
+        position=position,
+        signal=eval_res.signal,
+        signal_reason=eval_res.reason,
+        current_price=trade_price,
+        candle_timestamp=latest_closed.timestamp,
+        timeframe_ms=timeframe_ms,
+        kill_switch_active=kill_switch_active,
+        daily_realized_pnl=daily_pnl,
+        last_closed_trade_candle_ts=last_closed_ts,
+    )
 
-        if account.usdt_balance < total_cost:
-            storage.record_candle_processed(latest_closed.timestamp)
-            return PaperCycleResult(
-                exchange=config.exchange_id,
-                symbol=config.symbol,
-                timeframe=config.paper_timeframe,
-                closed_candle_time=latest_closed.formatted_time,
-                closed_candle_timestamp=latest_closed.timestamp,
-                signal=Signal.BUY,
-                signal_reason=eval_res.reason,
-                trade_action="BUY_INSUFFICIENT_FUNDS",
-                executed_trade=None,
-                account=account,
-                position=position,
-                trades_count=trades_count,
-                message=f"BUY cancelado: saldo USDT insuficiente ({account.usdt_balance} < {total_cost}).",
-            )
+    # 6. Execução das decisões autorizadas ou registro de bloqueios de risco
+    if not risk_decision.allowed:
+        storage.record_candle_processed(latest_closed.timestamp)
+        storage.set_last_risk_block(risk_decision.code.value, risk_decision.reason)
 
-        quantity = (notional / trade_price).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
-        new_usdt = account.usdt_balance - total_cost
-        new_btc = account.btc_balance + quantity
-
-        new_account = PaperAccount(
-            usdt_balance=new_usdt,
-            btc_balance=new_btc,
-            updated_at=now_iso,
-        )
-        new_position = PaperPosition(
-            side="LONG",
-            quantity=quantity,
-            cost_basis=total_cost,
-            entry_price=trade_price,
-            entry_timestamp=now_iso,
-        )
-        pending_trade = PaperTrade(
-            id=None,
-            timestamp=now_iso,
-            candle_timestamp=latest_closed.timestamp,
-            symbol=config.symbol,
-            side="BUY",
-            price=trade_price,
-            quantity=quantity,
-            notional=notional,
-            fee=fee,
-            realized_pnl=None,
-        )
-
-        executed_trade = storage.execute_trade_transaction(
-            new_account=new_account,
-            new_position=new_position,
-            trade=pending_trade,
-            candle_timestamp=latest_closed.timestamp,
-        )
+        if risk_decision.code == RiskDecisionCode.MAX_POSITION and position.side == "LONG":
+            trade_action = "BUY_IGNORED_POSITION_EXISTS"
+        elif risk_decision.code == RiskDecisionCode.NO_POSITION_TO_CLOSE:
+            trade_action = "SELL_IGNORED_NO_POSITION"
+        elif risk_decision.code == RiskDecisionCode.INSUFFICIENT_BALANCE:
+            trade_action = "BUY_INSUFFICIENT_FUNDS"
+        else:
+            trade_action = f"BLOCKED_{risk_decision.code.value}"
 
         return PaperCycleResult(
             exchange=config.exchange_id,
@@ -249,36 +207,19 @@ def execute_paper_cycle(
             timeframe=config.paper_timeframe,
             closed_candle_time=latest_closed.formatted_time,
             closed_candle_timestamp=latest_closed.timestamp,
-            signal=Signal.BUY,
+            signal=eval_res.signal,
             signal_reason=eval_res.reason,
-            trade_action="BUY_EXECUTED",
-            executed_trade=executed_trade,
-            account=new_account,
-            position=new_position,
-            trades_count=trades_count + 1,
-            message="Paper BUY executado com sucesso.",
+            trade_action=trade_action,
+            executed_trade=None,
+            account=account,
+            position=position,
+            trades_count=trades_count,
+            message=risk_decision.reason,
+            risk_decision=risk_decision,
         )
 
-    if eval_res.signal == Signal.SELL:
-        if position.side != "LONG" or position.quantity <= Decimal("0"):
-            storage.record_candle_processed(latest_closed.timestamp)
-            return PaperCycleResult(
-                exchange=config.exchange_id,
-                symbol=config.symbol,
-                timeframe=config.paper_timeframe,
-                closed_candle_time=latest_closed.formatted_time,
-                closed_candle_timestamp=latest_closed.timestamp,
-                signal=Signal.SELL,
-                signal_reason=eval_res.reason,
-                trade_action="SELL_IGNORED_NO_POSITION",
-                executed_trade=None,
-                account=account,
-                position=position,
-                trades_count=trades_count,
-                message="SELL ignorado: nenhuma posição aberta para encerrar.",
-            )
-
-        # Encerramento total da posição Spot LONG
+    if risk_decision.action == "SELL":
+        # Encerramento total da posição Spot LONG autorizado pelo Risk Engine
         sell_qty = position.quantity
         gross_notional = (sell_qty * trade_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         fee = (gross_notional * commission_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -311,6 +252,74 @@ def execute_paper_cycle(
             notional=gross_notional,
             fee=fee,
             realized_pnl=realized_pnl,
+            exit_reason=risk_decision.exit_reason,
+        )
+
+        executed_trade = storage.execute_trade_transaction(
+            new_account=new_account,
+            new_position=new_position,
+            trade=pending_trade,
+            candle_timestamp=latest_closed.timestamp,
+        )
+
+        trade_action = "STOP_LOSS_EXECUTED" if risk_decision.code == RiskDecisionCode.DEFENSIVE_EXIT_STOP_LOSS else "SELL_EXECUTED"
+        msg = (
+            f"Paper STOP LOSS executado: {risk_decision.reason}"
+            if risk_decision.code == RiskDecisionCode.DEFENSIVE_EXIT_STOP_LOSS
+            else "Paper SELL executado com sucesso."
+        )
+
+        return PaperCycleResult(
+            exchange=config.exchange_id,
+            symbol=config.symbol,
+            timeframe=config.paper_timeframe,
+            closed_candle_time=latest_closed.formatted_time,
+            closed_candle_timestamp=latest_closed.timestamp,
+            signal=eval_res.signal,
+            signal_reason=eval_res.reason,
+            trade_action=trade_action,
+            executed_trade=executed_trade,
+            account=new_account,
+            position=new_position,
+            trades_count=trades_count + 1,
+            message=msg,
+            risk_decision=risk_decision,
+        )
+
+    if risk_decision.action == "BUY":
+        # Abertura de posição Spot LONG autorizada pelo Risk Engine
+        notional = risk_decision.target_notional or Decimal(str(config.paper_trade_notional))
+        fee = (notional * commission_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        total_cost = notional + fee
+        quantity = (notional / trade_price).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+
+        new_usdt = account.usdt_balance - total_cost
+        new_btc = account.btc_balance + quantity
+
+        new_account = PaperAccount(
+            usdt_balance=new_usdt,
+            btc_balance=new_btc,
+            updated_at=now_iso,
+        )
+        new_position = PaperPosition(
+            side="LONG",
+            quantity=quantity,
+            cost_basis=total_cost,
+            entry_price=trade_price,
+            entry_timestamp=now_iso,
+        )
+        pending_trade = PaperTrade(
+            id=None,
+            timestamp=now_iso,
+            candle_timestamp=latest_closed.timestamp,
+            symbol=config.symbol,
+            side="BUY",
+            price=trade_price,
+            quantity=quantity,
+            notional=notional,
+            fee=fee,
+            realized_pnl=None,
+            exit_reason=None,
         )
 
         executed_trade = storage.execute_trade_transaction(
@@ -326,17 +335,18 @@ def execute_paper_cycle(
             timeframe=config.paper_timeframe,
             closed_candle_time=latest_closed.formatted_time,
             closed_candle_timestamp=latest_closed.timestamp,
-            signal=Signal.SELL,
+            signal=Signal.BUY,
             signal_reason=eval_res.reason,
-            trade_action="SELL_EXECUTED",
+            trade_action="BUY_EXECUTED",
             executed_trade=executed_trade,
             account=new_account,
             position=new_position,
             trades_count=trades_count + 1,
-            message="Paper SELL executado com sucesso.",
+            message="Paper BUY executado com sucesso.",
+            risk_decision=risk_decision,
         )
 
-    # Signal.HOLD ou sem alteração financeira
+    # Signal.HOLD ou ação HOLD autorizada sem alteração financeira
     storage.record_candle_processed(latest_closed.timestamp)
     return PaperCycleResult(
         exchange=config.exchange_id,
@@ -352,6 +362,7 @@ def execute_paper_cycle(
         position=position,
         trades_count=trades_count,
         message="HOLD: nenhuma alteração financeira.",
+        risk_decision=risk_decision,
     )
 
 
@@ -393,6 +404,18 @@ def format_paper_cycle_report(res: PaperCycleResult) -> str:
             f"BTC acquired: {res.executed_trade.quantity:.8f} BTC",
             "",
         ])
+    elif res.trade_action == "STOP_LOSS_EXECUTED" and res.executed_trade:
+        pnl = res.executed_trade.realized_pnl if res.executed_trade.realized_pnl is not None else Decimal("0.00")
+        lines.extend([
+            "Paper STOP LOSS",
+            f"Price: {res.executed_trade.price:.2f} USDT",
+            f"BTC sold: {res.executed_trade.quantity:.8f} BTC",
+            f"Fee: {res.executed_trade.fee:.2f} USDT",
+            f"Realized P/L: {pnl:+.2f} USDT",
+            f"Exit Reason: {res.executed_trade.exit_reason}",
+            f"Details: {res.message}",
+            "",
+        ])
     elif res.trade_action == "SELL_EXECUTED" and res.executed_trade:
         pnl = res.executed_trade.realized_pnl if res.executed_trade.realized_pnl is not None else Decimal("0.00")
         lines.extend([
@@ -401,6 +424,13 @@ def format_paper_cycle_report(res: PaperCycleResult) -> str:
             f"BTC sold: {res.executed_trade.quantity:.8f} BTC",
             f"Fee: {res.executed_trade.fee:.2f} USDT",
             f"Realized P/L: {pnl:+.2f} USDT",
+            f"Exit Reason: {res.executed_trade.exit_reason}",
+            "",
+        ])
+    elif res.trade_action.startswith("BLOCKED_"):
+        lines.extend([
+            "Risk Engine Notice:",
+            f"{res.message}",
             "",
         ])
     elif res.trade_action in ("BUY_IGNORED_POSITION_EXISTS", "SELL_IGNORED_NO_POSITION", "BUY_INSUFFICIENT_FUNDS"):
@@ -458,10 +488,29 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
     last_trade_str = "None"
     if last_trade:
         pnl_str = f" | PnL: {last_trade.realized_pnl:+.2f} USDT" if last_trade.realized_pnl is not None else ""
+        exit_str = f" | Exit: {last_trade.exit_reason}" if last_trade.exit_reason else ""
         last_trade_str = (
             f"#{last_trade.id} {last_trade.side} {last_trade.quantity:.8f} {last_trade.symbol} "
-            f"@ {last_trade.price:.2f} USDT (Fee: {last_trade.fee:.2f} USDT{pnl_str}) at {last_trade.timestamp}"
+            f"@ {last_trade.price:.2f} USDT (Fee: {last_trade.fee:.2f} USDT{pnl_str}{exit_str}) at {last_trade.timestamp}"
         )
+
+    # Informações de Risco (offline)
+    kill_switch_active = storage.get_kill_switch(default=config.risk_kill_switch)
+    kill_switch_str = "ACTIVE" if kill_switch_active else "INACTIVE"
+    daily_pnl = storage.get_daily_realized_loss()
+    last_closed_ts = storage.get_last_closed_trade_candle_timestamp()
+    timeframe_ms = timeframe_to_ms(config.paper_timeframe)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    cooldown_active = False
+    if last_closed_ts is not None:
+        cooldown_active = is_cooldown_active(
+            last_closed_trade_candle_ts=last_closed_ts,
+            current_candle_ts=now_ms,
+            cooldown_candles=config.risk_cooldown_candles,
+            timeframe_ms=timeframe_ms,
+        )
+    cooldown_str = f"{config.risk_cooldown_candles} candle(s) (Status: {'ACTIVE' if cooldown_active else 'INACTIVE'})"
+    last_risk_block = storage.get_last_risk_block() or "None"
 
     lines = [
         "==================================================",
@@ -480,6 +529,14 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
         f"Last trade: {last_trade_str}",
         f"Last processed candle: {last_processed_str}",
         "",
+        "Risk:",
+        f"Kill switch: {kill_switch_str}",
+        f"Daily realized P/L: {daily_pnl:+.2f} USDT",
+        f"Max daily loss: {config.risk_max_daily_loss:.2f} USDT",
+        f"Stop loss: {config.risk_stop_loss_pct * 100:.1f}%",
+        f"Cooldown: {cooldown_str}",
+        f"Last risk block: {last_risk_block}",
+        "",
         f"Database: {storage.db_path}",
         "Trading mode: PAPER (SIMULATION ONLY)",
         "Real trading: DISABLED",
@@ -490,15 +547,27 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
 
 def main() -> None:
     """Ponto de entrada para execução de Paper Trading via CLI."""
-    parser = argparse.ArgumentParser(description="FinBot Paper Trading Engine (FASE 5)")
+    parser = argparse.ArgumentParser(description="FinBot Paper Trading Engine (FASE 6)")
     parser.add_argument("--status", action="store_true", help="Exibe status atual da conta e histórico paper (offline)")
-    parser.add_argument("--reset", action="store_true", help="Reseta o ambiente fictício de paper trading")
+    parser.add_argument("--kill-switch", choices=["on", "off"], help="Ativa ('on') ou desativa ('off') o Kill Switch localmente no SQLite")
+    parser.add_argument("--reset", action="store_true", help="Reseta o ambiente fictício de paper trading e estados de risco")
     parser.add_argument("--yes", action="store_true", help="Confirmação direta para reset sem prompt interativo")
     args = parser.parse_args()
 
     config = get_config()
     storage = PaperStorage(db_path=config.paper_db_path)
     storage.init_db(initial_cash=Decimal(str(config.paper_initial_cash)))
+
+    if args.kill_switch:
+        if args.kill_switch == "on":
+            storage.set_kill_switch(True)
+            print("Kill switch: ACTIVE")
+            print("Novos BUYs no Paper Trading serão bloqueados pelo Risk Engine.")
+        else:
+            storage.set_kill_switch(False)
+            print("Kill switch: INACTIVE")
+            print("Operação normal de Paper Trading restaurada.")
+        return
 
     if args.status:
         report = format_paper_status_report(storage, config)

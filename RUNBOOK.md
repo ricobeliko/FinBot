@@ -69,21 +69,31 @@ python -m finbot.backtest --refresh
 
 ---
 
-## 7. Executar Paper Trading (FASE 5)
+## 7. Executar Paper Trading com Risk Engine (FASE 6)
 
 Com o ambiente ativado:
 
-Executa um ciclo one-shot de simulação em tempo real sobre dados públicos:
+Executa um ciclo one-shot de simulação em tempo real sobre dados públicos passando pela validação do Risk Engine:
 ```powershell
 python -m finbot.paper
 ```
 
-Consulta o saldo e o histórico da carteira simulada sem acessar a internet:
+Consulta o saldo, posições, histórico e métricas de risco sem acessar a internet (offline):
 ```powershell
 python -m finbot.paper --status
 ```
 
-Restaura o saldo inicial fictício (10000.00 USDT) e zera as operações simuladas:
+Ativa o Kill Switch localmente (bloqueia novos BUYs mantendo permissão de saída):
+```powershell
+python -m finbot.paper --kill-switch on
+```
+
+Desativa o Kill Switch localmente (restaura operação normal):
+```powershell
+python -m finbot.paper --kill-switch off
+```
+
+Restaura o saldo inicial fictício (10000.00 USDT), zera as operações simuladas e limpa o estado de risco:
 ```powershell
 python -m finbot.paper --reset --yes
 ```
@@ -96,13 +106,13 @@ python -m finbot.paper --reset --yes
 python -m unittest discover tests
 ```
 
-Executa toda a bateria de testes unitários determinísticos (sem conexão de internet e sem dados privados).
+Executa toda a bateria de testes unitários determinísticos (51 testes cobrindo Exchange, Strategy, Backtest, Storage e Risk Engine sem conexão de internet e sem dados privados).
 
 ---
 
 ## 9. Validar Compilação do Código
 
 ```powershell
-python -m compileall src
+python -m compileall src tests
 ```
 

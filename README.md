@@ -8,11 +8,11 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 5 — Paper Trading.
+FASE 6 — Risk Engine.
 No real trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 5 (Paper Trading)**. O FinBot executa simulações de negociação em tempo real (forward testing) com saldo fictício e persistência em banco SQLite local (`data/finbot_paper.sqlite3`). As operações são geradas estritamente a partir de dados públicos de mercado via CCXT, aplicando regras de deduplicação de candles e consistência contábil (ACID), sem qualquer envio de ordens reais a exchanges.
+O projeto concluiu a **FASE 6 (Risk Engine)**. O FinBot agora possui uma camada explícita, determinística e obrigatória de gestão de risco intermediária entre a estratégia e o broker simulado (`Market Data -> Strategy -> Signal -> Risk Engine -> Paper Broker`). O motor de risco opera 100% offline (sem CCXT, sem rede) e controla: tamanho máximo de posição (100 USDT), limite de perda diária realizada (50 USDT), proteção de Stop Loss defensivo (2.0%), cooldown de 1 candle fechado pós-saída e Kill Switch persistente no SQLite com controle CLI.
 
 > **Importante**: Paper Trading utiliza capital exclusivamente fictício. Nenhuma ordem real é enviada e nenhuma credencial de API é utilizada.
 
@@ -134,17 +134,23 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    ==================================================
    ```
 
-6. Executar o Paper Trading (forward testing com capital fictício):
+6. Executar o Paper Trading com Risk Engine:
    ```powershell
    python -m finbot.paper
    ```
 
-   Consultar o status da conta e trades simulados (offline):
+   Consultar o status da conta, histórico e métricas de risco (offline):
    ```powershell
    python -m finbot.paper --status
    ```
 
-   Resetar a conta e o histórico simulado:
+   Ativar ou desativar o Kill Switch de emergência (offline):
+   ```powershell
+   python -m finbot.paper --kill-switch on
+   python -m finbot.paper --kill-switch off
+   ```
+
+   Resetar a conta, histórico simulado e estado do Risk Engine:
    ```powershell
    python -m finbot.paper --reset --yes
    ```
@@ -159,7 +165,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 3 — Strategy Engine** (concluída): Motor de sinais determinísticos (SMA Crossover).
 - **FASE 4 — Backtesting** (concluída): Simulação reproduzível sobre dataset local e métricas.
 - **FASE 5 — Paper Trading** (concluída): Simulação de ordens e carteira virtual com SQLite.
-- **FASE 6 — Risk Engine**: Limites, validações e kill switch.
+- **FASE 6 — Risk Engine** (concluída): Limites estritos, stop loss, cooldown e kill switch.
 - **FASE 7 — Dashboard Local**: Acompanhamento visual via localhost.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).
 - **FASE 9 — Estabilidade**: Resiliência e recuperação de conexões.

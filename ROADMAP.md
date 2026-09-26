@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 5** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 6** está concluída.
 
 ---
 
@@ -56,10 +56,13 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 6 — Risk Engine
-- Definição e aplicação de limites estritos (tamanho máximo de posição, perda máxima diária)
-- Mecanismo de parada de emergência (*Kill Switch*)
-- Validações de integridade contra ordens incorretas ou duplicadas
+### FASE 6 — Risk Engine (Concluída)
+- [x] Definição e aplicação de limites estritos (tamanho máximo de posição 100 USDT, perda máxima diária 50 USDT)
+- [x] Mecanismo de parada de emergência (*Kill Switch*) persistente no SQLite com controle CLI (`--kill-switch on/off`)
+- [x] Proteção defensiva de Stop Loss (2.0%) com prioridade máxima e motivo de saída formal (`exit_reason="STOP_LOSS"`)
+- [x] Cooldown defensivo baseado em candles fechados (1 candle fechado de intervalo)
+- [x] Validações de integridade contra ordens incorretas ou duplicadas (interposição obrigatória entre estratégia e broker)
+- [x] Inviolabilidade de saídas (ordens SELL jamais são bloqueadas por limites defensivos)
 
 ---
 
