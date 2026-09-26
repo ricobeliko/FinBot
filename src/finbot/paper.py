@@ -167,6 +167,9 @@ def execute_paper_cycle(
     commission_rate = Decimal(str(config.paper_commission))
     trade_price = Decimal(str(last_price))
 
+    # Persiste último sinal avaliado para visualização no dashboard
+    storage.record_signal(eval_res.signal.value, eval_res.reason, now_iso)
+
     # 5. Avaliação pelo Risk Engine (autoridade obrigatória)
     timeframe_ms = timeframe_to_ms(config.paper_timeframe)
     kill_switch_active = storage.get_kill_switch(default=config.risk_kill_switch)

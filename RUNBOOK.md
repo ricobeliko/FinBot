@@ -100,19 +100,34 @@ python -m finbot.paper --reset --yes
 
 ---
 
-## 8. Executar Testes Unitários
+## 8. Executar Dashboard Visual Local (FASE 7)
+
+Com o ambiente ativado:
+
+```powershell
+streamlit run src/finbot/dashboard.py --server.address=127.0.0.1
+```
+
+Inicia o dashboard visual local em `http://127.0.0.1:8501`.
+- **Modo**: 100% Read-Only (visualização de patrimônio, posições, P/L, trades e Risk Engine).
+- **Rede**: Estritamente local (`127.0.0.1`), sem exposição para rede externa ou internet.
+- **Resiliência Offline**: Se a internet estiver indisponível, o painel carrega todos os dados locais do SQLite normalmente.
+- **Encerramento**: Pressione `Ctrl + C` no terminal para parar o servidor Streamlit.
+
+---
+
+## 9. Executar Testes Unitários
 
 ```powershell
 python -m unittest discover tests
 ```
 
-Executa toda a bateria de testes unitários determinísticos (51 testes cobrindo Exchange, Strategy, Backtest, Storage e Risk Engine sem conexão de internet e sem dados privados).
+Executa toda a bateria de testes unitários determinísticos (58 testes cobrindo Exchange, Strategy, Backtest, Storage, Risk Engine e Metrics sem conexão de internet e sem dados privados).
 
 ---
 
-## 9. Validar Compilação do Código
+## 10. Validar Compilação do Código
 
 ```powershell
 python -m compileall src tests
 ```
-

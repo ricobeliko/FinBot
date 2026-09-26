@@ -8,13 +8,13 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 6 — Risk Engine.
+FASE 7 — Dashboard Visual Local.
 No real trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 6 (Risk Engine)**. O FinBot agora possui uma camada explícita, determinística e obrigatória de gestão de risco intermediária entre a estratégia e o broker simulado (`Market Data -> Strategy -> Signal -> Risk Engine -> Paper Broker`). O motor de risco opera 100% offline (sem CCXT, sem rede) e controla: tamanho máximo de posição (100 USDT), limite de perda diária realizada (50 USDT), proteção de Stop Loss defensivo (2.0%), cooldown de 1 candle fechado pós-saída e Kill Switch persistente no SQLite com controle CLI.
+O projeto concluiu a **FASE 7 (Dashboard Visual Local)**. O FinBot disponibiliza uma interface gráfica interativa via Streamlit (`src/finbot/dashboard.py`) em `127.0.0.1:8501`. O painel é 100% Read-Only e exibe patrimônio estimado, saldo USDT/BTC, posição Spot LONG com P/L não realizado, histórico recente de trades com motivos de saída, gráfico de evolução cumulativa de P/L, status do Risk Engine (Kill Switch, perda diária e cooldown) e status operacional do bot, funcionando de forma resiliente tanto online quanto offline.
 
-> **Importante**: Paper Trading utiliza capital exclusivamente fictício. Nenhuma ordem real é enviada e nenhuma credencial de API é utilizada.
+> **Importante**: Paper Trading utiliza capital exclusivamente fictício. O dashboard opera exclusivamente em modo leitura, sem capacidade técnica de enviar ordens reais ou modificar a carteira.
 
 ---
 
@@ -150,10 +150,12 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    python -m finbot.paper --kill-switch off
    ```
 
-   Resetar a conta, histórico simulado e estado do Risk Engine:
+7. Executar o Dashboard Visual Local (FASE 7):
    ```powershell
-   python -m finbot.paper --reset --yes
+   streamlit run src/finbot/dashboard.py --server.address=127.0.0.1
    ```
+   Acesse no navegador: `http://127.0.0.1:8501`
+   Painel 100% Read-Only e local (localhost).
 
 ---
 
@@ -166,7 +168,9 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 4 — Backtesting** (concluída): Simulação reproduzível sobre dataset local e métricas.
 - **FASE 5 — Paper Trading** (concluída): Simulação de ordens e carteira virtual com SQLite.
 - **FASE 6 — Risk Engine** (concluída): Limites estritos, stop loss, cooldown e kill switch.
-- **FASE 7 — Dashboard Local**: Acompanhamento visual via localhost.
+- **FASE 7A — Dashboard Local Visual** (concluída): Acompanhamento visual via Streamlit (localhost).
+- **FASE 7B — Dashboard Mobile-Friendly**: Refinamento e ergonomia para telas menores.
+- **FASE 7C — Acesso Remoto Seguro**: Avaliação de acesso seguro read-only.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).
 - **FASE 9 — Estabilidade**: Resiliência e recuperação de conexões.
 - **FASE 10 — Empacotamento/Transferência**: Preparação final para PC de destino.

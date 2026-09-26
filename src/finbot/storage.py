@@ -365,6 +365,40 @@ class PaperStorage:
                     daily_pnl += Decimal(str(r["realized_pnl"]))
             return daily_pnl
 
+    def record_signal(self, signal: str, reason: str, timestamp_iso: str) -> None:
+        """Registra o último sinal avaliado da estratégia para consulta pelo Dashboard."""
+        with self.connection() as conn:
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('last_signal', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (signal,),
+            )
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('last_signal_reason', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (reason,),
+            )
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('last_signal_time', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (timestamp_iso,),
+            )
+
+    def get_last_signal(self) -> dict[str, str] | None:
+        """Retorna o último sinal da estratégia registrado no SQLite."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                "SELECT key, value FROM paper_state WHERE key IN ('last_signal', 'last_signal_reason', 'last_signal_time');"
+            )
+            rows = {r["key"]: r["value"] for r in cur.fetchall()}
+            if "last_signal" in rows:
+                return {
+                    "signal": rows.get("last_signal", "HOLD"),
+                    "reason": rows.get("last_signal_reason", ""),
+                    "timestamp": rows.get("last_signal_time", ""),
+                }
+            return None
+
     def reset_db(self, initial_cash: Decimal = Decimal("10000.00")) -> None:
         """Reseta integralmente o ambiente fictício de Paper Trading e o estado do Risk Engine."""
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -379,5 +413,7 @@ class PaperStorage:
             )
             conn.execute("DELETE FROM paper_trades;")
             conn.execute(
-                "DELETE FROM paper_state WHERE key IN ('last_processed_candle_timestamp', 'kill_switch', 'last_risk_block');"
+                "DELETE FROM paper_state WHERE key IN ("
+                "'last_processed_candle_timestamp', 'kill_switch', 'last_risk_block', "
+                "'last_signal', 'last_signal_reason', 'last_signal_time');"
             )

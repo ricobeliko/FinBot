@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 6** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 7A** está concluída.
 
 ---
 
@@ -66,28 +66,47 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 7 — Dashboard Local
-- Interface visual interativa para acompanhamento (provavelmente Streamlit)
-- Execução estritamente em `localhost`
-- Gráficos de saldo, posições abertas, histórico de sinais e métricas de risco
+### FASE 7A — Dashboard Local Visual (Concluída)
+- [x] Interface visual interativa para acompanhamento local via Streamlit (`dashboard.py`)
+- [x] Execução estritamente em `localhost` (127.0.0.1:8501)
+- [x] Cards de saldo, patrimônio estimado, posição aberta, P/L realizado/não realizado e trades
+- [x] Gráficos de evolução do P/L cumulativo baseado exclusivamente em trades reais
+- [x] Painel de monitoramento do Risk Engine (Kill Switch, Daily Loss, Cooldown e bloqueios)
+- [x] Módulo de métricas desacoplado (`metrics.py`) e 58 testes unitários passando
+- [x] Layout responsivo com base adaptável para desktop e dispositivos móveis
+- [x] Operação 100% Read-Only sem botões ou ações de execução financeira
 
 ---
 
-### FASE 8 — Integração Live
+### FASE 7B — Dashboard Mobile-Friendly / Refinamento
+- Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
+- Melhorias ergonômicas de navegação e densidade de informação
+- Auto-refresh suave configurável sem sobrecarga do processo
+
+---
+
+### FASE 7C — Acesso Remoto Seguro Read-Only
+- Avaliação de arquitetura para acesso remoto restrito (ex: túnel SSH / PWA / VPN local)
+- Mecanismo de autenticação e proteção de perímetro (sem expor credenciais à internet)
+- Preservação do princípio Read-Only estrito
+
+---
+
+### FASE 8 — Integração com Conta Real
 - Conexão com API autenticada de exchange
 - Uso exclusivo de chaves de API sem permissão de saque (*no withdrawal*)
 - Modo Live bloqueado por padrão; liberação com dupla confirmação operacional
 
 ---
 
-### FASE 9 — Estabilidade e Resiliência
+### FASE 9 — Estabilidade 24/7
 - Tratamento avançado de desconexões de rede e falhas de socket/HTTP
 - Mecanismos de reinício automático e recuperação de estado consistente
 - Alarmes e logs detalhados de anomalias operacionais
 
 ---
 
-### FASE 10 — Empacotamento e Transferência
+### FASE 10 — Instalação no PC Definitivo
 - Preparação para migração ao PC definitivo de execução (Windows)
 - Scripts de instalação e provisionamento do ambiente
 - Scripts de inicialização automática e monitoramento de processo em segundo plano

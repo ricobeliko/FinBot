@@ -12,6 +12,7 @@ dependencies = [
     "ccxt==4.5.84",
     "backtesting==0.6.6",
     "pandas==3.0.6",
+    "streamlit==1.64.0",
 ]
 
 [tool.setuptools.packages.find]
