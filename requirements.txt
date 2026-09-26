@@ -1,0 +1,3 @@
+# FinBot — FASE 0 (Foundation)
+# Nenhuma dependência externa necessária nesta fase.
+# Bibliotecas adicionais (ccxt, pandas, backtesting, streamlit, etc.) serão introduzidas sob demanda nas fases posteriores.
