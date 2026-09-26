@@ -1,4 +1,4 @@
-# FinBot — Runbook Operacional (FASE 0)
+# FinBot — Runbook Operacional
 
 Procedimentos operacionais básicos e diretos para o ambiente local.
 
@@ -40,11 +40,13 @@ python -m pip install -e .
 
 ---
 
-## 5. Executar Aplicação Mínima
+## 5. Executar Aplicação Local
 
 Com o ambiente ativado:
 
 ```powershell
 python -m finbot.main
 ```
+
+Os registros de execução são exibidos no console e gravados em `logs/finbot.log`.
 

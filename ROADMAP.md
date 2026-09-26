@@ -2,11 +2,11 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente estamos na **FASE 0**.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 1** está concluída.
 
 ---
 
-### FASE 0 — Foundation (Fase Atual)
+### FASE 0 — Foundation (Concluída)
 - [x] Estrutura inicial de diretórios e arquivos
 - [x] Documentação orientadora para agentes de IA
 - [x] Configuração de repositório Git local e `.gitignore`
@@ -15,10 +15,10 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 1 — Python Core
-- Execução central estruturada
-- Sistema de configuração simples (leitura de ambiente/arquivo local)
-- Logging básico com rotação e saída em terminal/arquivo
+### FASE 1 — Python Core (Concluída)
+- [x] Execução central estruturada (`main.py`)
+- [x] Sistema de configuração simples local (`config.py`)
+- [x] Logging básico com saída em terminal e arquivo (`logging_setup.py`)
 
 ---
 

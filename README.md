@@ -8,11 +8,11 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-Foundation only.
+FASE 1 — Python Core.
 No trading functionality exists.
 ```
 
-O projeto está na **FASE 0 (Foundation)**. Apenas a estrutura básica de diretórios, regras operacionais para IA e ponto de entrada mínimo estão configurados. Nenhuma exchange, rede externa, banco de dados ou estratégia está conectada.
+O projeto concluiu a **FASE 1 (Python Core)**. Possui configuração local mínima, logging em console e arquivo local (`logs/finbot.log`), inicialização previsível e encerramento limpo. Nenhuma exchange, rede externa, banco de dados ou estratégia está conectada.
 
 ---
 
@@ -67,16 +67,17 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    Saída esperada:
    ```text
    FinBot
-   Status: Foundation
-   Trading: disabled
+   Environment: local
+   Trading mode: disabled
+   Status: running
    ```
 
 ---
 
 ## Roadmap Resumido
 
-- **FASE 0 — Foundation** (atual): Estrutura base, documentação e aplicação mínima.
-- **FASE 1 — Python Core**: Configuração e logging.
+- **FASE 0 — Foundation** (concluída): Estrutura base, documentação e aplicação mínima.
+- **FASE 1 — Python Core** (concluída): Configuração local e logging básico.
 - **FASE 2 — Market Monitor**: Integração CCXT somente leitura de dados públicos.
 - **FASE 3 — Strategy Engine**: Motor de sinais determinísticos.
 - **FASE 4 — Backtesting**: Testes históricos e métricas offline.
