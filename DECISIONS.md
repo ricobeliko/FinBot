@@ -324,6 +324,47 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Isolamento**: Zero frameworks de ML instalados, nenhum modelo treinado, nenhum ajuste dinâmico de risco e runtime operacional mantido intacto.
 - **Motivo**: Estabelecer um contrato matemático irrevogável, auditado e reproduzível entre o que o FinBot sabia no momento da decisão e o que o mercado fez posteriormente.
 
+---
+
+### D025 — Adaptive Learning Foundation (Fase 7.9G)
+- **Status**: Aceito
+- **Data**: FASE 7.9G
+- **Contexto**: Estabelecer e validar o primeiro pipeline determinístico de aprendizado adaptativo do FinBot (`Experience Dataset -> Features + Labels -> Temporal Dataset -> Baseline -> Modelo Simples -> Validation -> Final Test -> Relatório de Aprendizado`), sem introduzir Machine Learning no runtime de produção e sem alterar a tomada de decisão da Strategy Engine ou do Risk Engine.
+- **Decisão**:
+  - **Objetivo Científico e Metodológico**: Avaliar de forma estritamente offline e auditada se as experiências passadas do FinBot contêm sinal preditivo sobre o comportamento futuro do mercado, medindo se um modelo linear regularizado acrescenta informação em relação a um baseline estatístico.
+  - **Fonte Canônica e Auditoria de Dataset**:
+    - O banco de paper trading (`data/finbot_paper.sqlite3`) possui apenas 3 trades no momento, disparando corretamente o status de salvaguarda `INSUFFICIENT_SAMPLE`.
+    - Como fonte canônica com significância estatística real e sem dados fabricados, utilizou-se o dataset histórico oficial de 10.000 candles (`data/backtest/binance_BTCUSDT_5m_10000.json`) gerando 575 experiências canônicas completas a partir da execução da estratégia SMA 5/10.
+  - **Target Escolhido**:
+    - `future_return_20`: Retorno contínuo a 20 candles futuros, calculado estritamente como $(Close[t+20] - Open[t+1]) / Open[t+1]$ conforme o contrato da Fase 7.9F.
+  - **Features Decision-Safe (14 variáveis)**:
+    - Exclusivamente variáveis conhecidas no instante de fechamento do candle de decisão $Close[t]$: `price`, `open`, `high`, `low`, `close`, `volume`, `short_window`, `long_window`, `sma_short`, `sma_long`, `sma_distance`, `sma_ratio`, `hour`, `day_of_week`.
+    - Proibição estrita de qualquer campo de outcome (`future_return_*`, `realized_pnl`, `exit_price`, etc.) no vetor de entrada.
+  - **Split Temporal Estrito (NO SHUFFLE)**:
+    - Divisão cronológica 60% Train (345 amostras) / 20% Validation (115 amostras) / 20% Test (115 amostras).
+    - Garantia matemática de precedência temporal: $\max(Train) < \min(Val) < \min(Test)$. Rejeição automática com erro se houver embaralhamento ou desordem.
+  - **Pré-processamento sem Leakage**:
+    - `StandardScaler` (com fallback puro em NumPy para compatibilidade total entre `.venv` e `.venv-research`) ajustado (*fit*) exclusivamente sobre os dados de Treino, sendo apenas aplicado (*transform*) sobre Validação e Teste.
+  - **Baseline Estatístico**:
+    - Estimador constante baseado na média do Treino (`DummyRegressor(strategy="mean")` / média escalar de Treino), sem acesso a Validação ou Teste.
+  - **Primeiro Modelo Regularizado**:
+    - Regressão Ridge ($\alpha=1.0$), selecionada por sua simplicidade, estabilidade analítica, interpretabilidade e baixo risco de overfitting em amostras pequenas.
+  - **Métricas Multidimensionais**:
+    - Erro e correlação: MAE, RMSE, $R^2$, Acurácia Direcional (concordância de sinal predito vs real), correlação de Pearson.
+    - Diagnóstico econômico não-operacional: retorno real médio condicionado ao sinal da predição ($\hat{y} > 0$ vs $\hat{y} \le 0$).
+  - **Resultado do Experimento Real (10k Candles)**:
+    - *Train*: Baseline MAE = 0.003048 vs Ridge MAE = 0.002975 ($R^2 = 0.1052$, Acurácia Direcional = 53.91%).
+    - *Validation*: Baseline MAE = 0.003387 vs Ridge MAE = 0.003605 ($R^2 = -0.0380$, Acurácia Direcional = 51.30%).
+    - *Test*: Baseline MAE = 0.003608 vs Ridge MAE = 0.004995 ($R^2 = -0.4386$, Acurácia Direcional = 48.70%).
+    - *Conclusão Registrada Honestamente*: `MODEL_DOES_NOT_BEAT_BASELINE`. O modelo linear regularizado não superou o baseline estático nas partições out-of-sample, confirmando a hipótese de ruído em horizontes curtos de 5m e validando a solidez da metodologia de rejeição.
+  - **Por que isso NÃO é Adaptive Trading**:
+    - O modelo é 100% offline e pesquisa-first.
+    - Zero integração com o Paper Runner, Risk Engine ou Strategy Engine.
+    - Nenhuma ordem enviada, nenhum parâmetro operacional alterado dinamicamente.
+    - Validação de modelos e governança pertencem à Fase 7.9H; paper trading adaptativo pertence à Fase 7.9I.
+- **Motivo**: Validar a infraestrutura e integridade científica do aprendizado de máquina no FinBot, garantindo transparência, ausência de leakage e rigor estatístico antes de qualquer transição para validação de modelos.
+
+
 
 
 

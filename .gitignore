@@ -35,6 +35,7 @@ data/lab/results/wfa/
 data/lab/results/robustness/
 data/lab/results/experience/
 data/lab/results/features_labels/
+data/lab/results/adaptive_learning/
 !data/lab/results/.gitkeep
 
 # Distribution / packaging

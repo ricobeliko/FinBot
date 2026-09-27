@@ -1,17 +1,21 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9F — Features + Labels concluída no Notebook.
+FASE 7.9G — Adaptive Learning concluída no Notebook.
 
-### Features + Labels (Contrato Matemático sem Leakage)
-- Módulo `src/finbot/features.py` implementado para transformação offline de experiências em features e labels determinísticos:
-  - `FeatureSet (FEATURE-SAFE)`: Mercado (price, open, high, low, close, volume), Estratégia/Indicadores (short/long windows, sma_short, sma_long, sma_distance, sma_ratio), Estado (signal, reason, position_before, risk_decision, risk_allowed) e Contexto Temporal UTC (hour 0..23, day_of_week 0..6).
-  - Blindagem anti-leakage em código: `extract_features` descarta preventivamente qualquer candle posterior a `candle_timestamp`.
-  - `LabelSet (OUTCOME-ONLY)`: Retornos futuros calculados rigorosamente a partir da execução em `Open[t+1]` para os horizontes de 5, 20, 50 e 100 candles (`Close[t+N]`).
-  - Preservação estrita de `None` (`NULL`) para dados futuros insuficientes, sem conversão para zero.
-  - Funções de construção e exportação determinística para CSV e JSON em `data/lab/results/features_labels/` (ignorado no Git).
-- 152 testes automatizados (140 passando e 12 skipped no `.venv` padrão; 152 passando 100% no `.venv-research`).
-- VectorBT permanece estritamente como dependência isolada de pesquisa (`.venv-research`).
+### Adaptive Learning (Fundação do Pipeline de Aprendizado sem Leakage)
+- Módulo `src/finbot/lab/learning.py` implementado para pipeline determinístico e 100% offline:
+  - *Auditoria e Suficiência*: Verificação de integridade e salvaguarda amostral objetiva (`check_sample_sufficiency`, $N \ge 50$); banco operacional de paper ($N=3$) corretamente classificado como `INSUFFICIENT_SAMPLE`.
+  - *Fonte Canônica*: Dataset histórico congelado de 10.000 candles de 5m gerando 575 experiências canônicas completas a partir da estratégia SMA 5/10.
+  - *Target*: `future_return_20` derivado estritamente como $(Close[t+20] - Open[t+1]) / Open[t+1]$ conforme contrato da F7.9F.
+  - *Features (14)*: Exclusivamente Decision Time (`price`, `open`, `high`, `low`, `close`, `volume`, `short_window`, `long_window`, `sma_short`, `sma_long`, `sma_distance`, `sma_ratio`, `hour`, `day_of_week`). Zero campos de outcome.
+  - *Split Temporal (NO SHUFFLE)*: 60% Train (345) / 20% Val (115) / 20% Test (115) com garantia $\max(Train) < \min(Val) < \min(Test)$.
+  - *Pré-processamento sem Leakage*: `StandardScaler` ajustado (*fit*) exclusivamente em Train e apenas aplicado em Val e Test (suporte dual: scikit-learn no `.venv-research` e fallback puro em NumPy no `.venv`).
+  - *Modelos e Avaliação*: Baseline constante de Treino vs Ridge Regression ($\alpha=1.0$).
+  - *Resultado Real (10k)*: Ridge MAE Test: 0.004995 vs Baseline MAE Test: 0.003608 ($R^2 = -0.4386$). Conclusão honesta e transparente: `MODEL_DOES_NOT_BEAT_BASELINE`.
+  - *Artefatos Exportados*: `data/lab/results/adaptive_learning/` (`learning_summary.csv`, `learning_results.json`, `learning_manifest.json`, `learning_coefficients.csv`).
+- 170 testes automatizados (158 passando e 12 skipped no `.venv` padrão; 170 passando 100% no `.venv-research`).
+- VectorBT e scikit-learn permanecem estritamente isolados no ambiente de pesquisa (`.venv-research`). Zero ML em produção.
 
 ### PAPER SOAK TEST (PC FORTE)
 Data/hora UTC: 2026-09-27T00:11:58Z
@@ -109,9 +113,11 @@ none
 - D022: Avaliação de Robustez e Stress Testing do WFA (Fase 7.9D).
 - D023: Fundação do Experience Dataset e Blindagem Anti-Leakage (Fase 7.9E).
 - D024: Especificação Matemática de Features e Labels sem Leakage (Fase 7.9F).
+- D025: Adaptive Learning Foundation (Fase 7.9G).
 
 ## Último checkpoint
-Features + Labels (FASE 7.9F): Implementação de `src/finbot/features.py` estabelecendo a transformação determinística e offline de experiências em FeatureSet (decision-safe: mercado, estratégia, indicadores SMA, estado, UTC) e LabelSet (outcome-only: retornos futuros em 5, 20, 50 e 100 candles a partir de Open[t+1] até Close[t+N]). Blindagem anti-leakage comprovada matematicamente e por teste formal de mutação futura, tratamento de dados insuficientes preservando estritamente None (NULL), exportação CSV/JSON para `data/lab/results/features_labels/` e validação smoke com dataset real de 10.000 candles da Binance Spot. 152 testes passando (140 no .venv com 12 skipped isolados; 152 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
+Adaptive Learning (FASE 7.9G): Implementação de `src/finbot/lab/learning.py` estabelecendo o pipeline determinístico e 100% offline de aprendizado supervisionado (Auditoria de suficiência, construção de dataset com 14 features decision-safe e target `future_return_20`, split estritamente temporal 60/20/20 sem shuffle, scaler ajustado exclusivamente em Train, baseline de média constante vs Ridge Regression regularizado, avaliação em Validação e Teste out-of-sample isolado e exportação de relatórios/manifest em `data/lab/results/adaptive_learning/`). Conclusão honesta e transparente: `MODEL_DOES_NOT_BEAT_BASELINE` (Ridge não superou o baseline no Teste out-of-sample). 170 testes passando (158 no .venv padrão com 12 skipped isolados; 170 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9G — Adaptive Learning.
+FASE 7.9H — Model Validation / Registry.
+

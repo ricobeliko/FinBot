@@ -221,13 +221,28 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 7.9G — Adaptive Learning
-- Treinamento offline de modelos de aprendizagem supervisionada sobre o Experience Dataset
-- Avaliação de modelos contra métricas quantitativas de performance e generalização
+### FASE 7.9G — Adaptive Learning (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/lab/learning.py` implementando o pipeline determinístico e auditado de ponta a ponta
+- [x] Auditoria de dataset exploratória (`DatasetAuditResult`) e verificação objetiva de suficiência amostral (`check_sample_sufficiency`)
+- [x] Definição de fonte canônica: salvaguarda para o banco de paper trading ($N=3$, status `INSUFFICIENT_SAMPLE`) e uso do histórico oficial de 10.000 candles (575 experiências reais válidas da estratégia SMA 5/10)
+- [x] Definição estrita do target: `future_return_20` derivado a partir de $Open[t+1]$ e $Close[t+20]$
+- [x] Seleção de 14 features exclusivas de Decision Time (`price`, `open`, `high`, `low`, `close`, `volume`, `short_window`, `long_window`, `sma_short`, `sma_long`, `sma_distance`, `sma_ratio`, `hour`, `day_of_week`) com proibição absoluta de campos de outcome
+- [x] Particionamento estritamente temporal (NO SHUFFLE) em 60% Train (345) / 20% Validation (115) / 20% Test (115) com validação matemática de não-overlap ($\max(Train) < \min(Val) < \min(Test)$)
+- [x] Pré-processamento sem leakage com `StandardScaler` ajustado (*fit*) exclusivamente em Train
+- [x] Baseline determinístico ajustado exclusivamente em Train (`DummyRegressor` / média de Treino)
+- [x] Primeiro modelo regularizado: Regressão Ridge ($\alpha=1.0$) treinado exclusivamente em Train
+- [x] Isolamento estrito da partição de Teste durante o treinamento e pré-processamento
+- [x] Cálculo determinístico de métricas estatísticas (MAE, RMSE, $R^2$, Acurácia Direcional, Correlação de Pearson) e diagnóstico econômico condicionado ao sinal predito
+- [x] Provas anti-leakage em testes automatizados (mutação de dados futuros não altera features; altera labels)
+- [x] Execução do experimento real no dataset congelado de 10.000 candles de 5m e exportação de artefatos estruturados em `data/lab/results/adaptive_learning/` (`learning_summary.csv`, `learning_results.json`, `learning_manifest.json`, `learning_coefficients.csv`)
+- [x] Conclusão transparente e fundamentada: `MODEL_DOES_NOT_BEAT_BASELINE` (Ridge não superou o baseline em Val e Test; $R^2 < 0$)
+- [x] Adição de 18 testes unitários e anti-leakage em `tests/test_lab_learning.py` (totalizando 170 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
 ---
 
-### FASE 7.9H — Model Validation / Registry
+### FASE 7.9H — Model Validation / Registry ← PRÓXIMA
 - Auditoria de modelos gerados, matrizes de confusão e versionamento no registry local
 - Testes contra sobreajuste e stress testing de predições
 
