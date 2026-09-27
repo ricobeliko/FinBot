@@ -295,9 +295,26 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 ---
 
 ### FASE 8 — Integração com Conta Real
-- Conexão com API autenticada de exchange
+
+#### FASE 8.1 — Binance Private Integration Foundation (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo isolado `src/finbot/private_exchange.py` encapsulando exclusivamente operações privadas Binance Spot
+- [x] Configuração segura centralizada em `src/finbot/config.py`: `TRADING_MODE` (default obrigatório `paper`), `BINANCE_API_KEY`, `BINANCE_API_SECRET`
+- [x] Proteção ativa de credenciais: mascaramento com `repr=False`, sanitização em logs e exceções (`sanitize_secret_text`), proibição de persistência em SQLite, CSV ou datasets
+- [x] Separação estrita Paper / Live: modo `paper` bloqueado de invocar endpoints privados; modo `live` restrito estritamente a operações READ-ONLY nesta fase
+- [x] Métodos de consulta normalizados: `get_account_status()`, `get_balances()`, `get_balance(asset)`, `get_account_snapshot()` com modelo `AccountSnapshot`
+- [x] Informação vs Autorização: `can_trade` tratado estritamente como dado descritivo da Binance, sem capacidade de autorizar ordens no FinBot
+- [x] Bloqueio arquitetural de ordens reais: métodos de envio/cancelamento de ordens (`create_order`, `cancel_order`) levantam `LiveTradingBlockedError`
+- [x] Tratamento de erros fail-closed: hierarquia dedicada (`CredentialsMissingError`, `AuthenticationError`, `NetworkError`, `RateLimitError`, `InvalidConfigurationError`)
+- [x] Adição de 22 testes unitários e de segurança em `tests/test_private_exchange.py` (totalizando 232 testes no projeto)
+- [x] Teste privado manual em ambiente sem credenciais registrado como `NOT_RUN_NO_CREDENTIALS` sem invenção de dados
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+#### FASE 8.2 — Execução de Ordens e Gestão de Posição Live (Pendente)
+- Conexão com API autenticada de exchange para envio e cancelamento de ordens
 - Uso exclusivo de chaves de API sem permissão de saque (*no withdrawal*)
 - Modo Live bloqueado por padrão; liberação com dupla confirmação operacional
+- Integração estrita com o Risk Engine e limites de perda operacional
 
 ---
 

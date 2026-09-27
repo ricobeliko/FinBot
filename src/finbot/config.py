@@ -1,6 +1,10 @@
-"""Configuração local do FinBot para a FASE 3 (Strategy Engine)."""
+"""Configuração operacional do FinBot."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import os
+
+VALID_TRADING_MODES = {"paper", "live"}
+DEFAULT_TRADING_MODE = "paper"
 
 
 @dataclass(frozen=True)
@@ -9,7 +13,7 @@ class Config:
 
     app_name: str = "FinBot"
     environment: str = "local"
-    trading_mode: str = "disabled"
+    trading_mode: str = "paper"
     log_level: str = "INFO"
     exchange_id: str = "binance"
     symbol: str = "BTC/USDT"
@@ -36,8 +40,28 @@ class Config:
     adaptive_mode: str = "off"
     adaptive_model_id: str = ""
     adaptive_registry_db: str = "data/lab/results/model_registry/model_registry.sqlite3"
+    binance_api_key: str = field(default="", repr=False)
+    binance_api_secret: str = field(default="", repr=False)
+
+    def __post_init__(self) -> None:
+        """Sanitiza trading_mode garantindo que apenas valores suportados sejam aceitos."""
+        mode = (self.trading_mode or "").strip().lower()
+        if mode not in VALID_TRADING_MODES:
+            object.__setattr__(self, "trading_mode", DEFAULT_TRADING_MODE)
+        else:
+            object.__setattr__(self, "trading_mode", mode)
 
 
 def get_config() -> Config:
-    """Retorna a configuração padrão para execução local."""
-    return Config()
+    """Retorna a configuração operacional a partir de variáveis de ambiente com defaults seguros."""
+    raw_mode = os.getenv("TRADING_MODE", DEFAULT_TRADING_MODE).strip().lower()
+    trading_mode = raw_mode if raw_mode in VALID_TRADING_MODES else DEFAULT_TRADING_MODE
+
+    api_key = os.getenv("BINANCE_API_KEY", "").strip()
+    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
+
+    return Config(
+        trading_mode=trading_mode,
+        binance_api_key=api_key,
+        binance_api_secret=api_secret,
+    )

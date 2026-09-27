@@ -1,7 +1,18 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9I — Adaptive Paper concluída no Notebook.
+FASE 8.1 — Binance Private Integration Foundation concluída no Notebook.
+
+### Binance Private Integration Foundation (Read-Only Live Boundary)
+- Módulo isolado `src/finbot/private_exchange.py` criado para encapsular exclusivamente operações privadas da Binance Spot via CCXT.
+- *Trading Mode*: `TRADING_MODE` centralizado em `src/finbot/config.py` com valor default mandatório `paper`. Modo `paper` não invoca nem instancia endpoints privados.
+- *Credenciais Seguras*: Lidas exclusivamente de variáveis de ambiente (`BINANCE_API_KEY`, `BINANCE_API_SECRET`). Protegidas com `repr=False`, sanitizadas ativamente em logs e mensagens de exceção (`sanitize_secret_text`), e proibidas de persistência em SQLite, CSV ou datasets.
+- *Live Read-Only Estrito*: Modo `live` restrito a consultas autenticadas de conta e saldo (`get_account_status`, `get_balances`, `get_balance`, `get_account_snapshot`).
+- *can_trade Informativo*: O flag `can_trade` do snapshot de conta é tratado estritamente como dado descritivo retornado pela Binance; não concede permissão nem autoriza ordens no FinBot.
+- *Bloqueio Arquitetural de Ordens*: Métodos de envio e cancelamento de ordens (`create_order`, `cancel_order`) levantam expressamente `LiveTradingBlockedError`. Não há caminho executável para ordens reais nesta fase.
+- *Fail-Closed*: Tratamento rigoroso de exceções dedicadas (`CredentialsMissingError`, `AuthenticationError`, `NetworkError`, `RateLimitError`, `InvalidConfigurationError`) sem fallbacks permissivos.
+- *Teste Privado*: `PRIVATE_READ_TEST = NOT_RUN_NO_CREDENTIALS` (sem credenciais ativas no ambiente de dev; zero credenciais inventadas).
+- 232 testes automatizados (220 passando e 12 skipped no `.venv` padrão; 232 passando 100% no `.venv-research`).
 
 ### Adaptive Paper (Shadow Mode, Fail-Closed e Fallback Seguro)
 - Módulo `src/finbot/adaptive.py` implementado para avaliação adaptativa sob rigorosa governança:
@@ -13,8 +24,7 @@ FASE 7.9I — Adaptive Paper concluída no Notebook.
   - *Fallback Imediato*: Qualquer erro de inferência (`NaN`, `Inf` ou exceção) dispara fail-closed e fallback transparente para a estratégia existente sem interrupção do Paper Runner.
   - *Auditoria do Modelo Real*: O único modelo real registrado (`model_b3e792893e42fd40`, Ridge Regression) permaneceu `REJECTED` e foi bloqueado com sucesso (`MODEL_REJECTED`) em testes reais.
   - *Preservação de Regressão*: Paper Trading em modo `off` mantém comportamento idêntico à linha de base.
-- 210 testes automatizados (198 passando e 12 skipped no `.venv` padrão; 210 passando 100% no `.venv-research`).
-- VectorBT, scikit-learn e Registry continuam restritos à pesquisa e ao ambiente de desenvolvimento. Zero live trading, zero API keys.
+- VectorBT, scikit-learn e Registry continuam restritos à pesquisa e ao ambiente de desenvolvimento. Zero ordens reais.
 
 ### PAPER SOAK TEST (PC FORTE)
 Data/hora UTC: 2026-09-27T00:11:58Z
@@ -54,7 +64,8 @@ disabled
 not implemented
 
 ### API credentials
-none
+- Suporte a `BINANCE_API_KEY` e `BINANCE_API_SECRET` via variáveis de ambiente para leitura autenticada privada (Fase 8.1).
+- Credenciais ausentes no ambiente de desenvolvimento local (`PRIVATE_READ_TEST = NOT_RUN_NO_CREDENTIALS`).
 
 ## Ambiente
 - Windows
@@ -115,11 +126,10 @@ none
 - D025: Adaptive Learning Foundation (Fase 7.9G).
 - D026: Model Validation and Registry (Fase 7.9H).
 - D027: Adaptive Paper Safety Architecture (Fase 7.9I).
+- D028: Binance Private Integration Foundation and Read-Only Live Boundary (Fase 8.1).
 
 ## Último checkpoint
-Adaptive Paper (FASE 7.9I): Implementação de `src/finbot/adaptive.py` e integração controlada com o ciclo de Paper Trading (`execute_paper_cycle`), estabelecendo Shadow Mode (`MODE_SHADOW`), Adaptive Mode (`MODE_ADAPTIVE`) e modo inativo por padrão (`MODE_OFF`). Salvaguardas rigorosas implementadas: requisito mandatório de modelos formalmente com status `VALIDATED` no `ModelRegistry`; bloqueio automático (fail-closed) para modelos `CANDIDATE`, `REJECTED`, `REVOKED`, inexistentes ou sem model_id; verificação criptográfica de integridade de manifestos e fingerprints; soberania estrita do Risk Engine e da Strategy Engine sobre qualquer recomendação adaptativa; persistência dedicada em `adaptive_predictions` no SQLite e métricas acumuladas de divergência; e fallback seguro e imediato em qualquer caso de anomalia de inferência ou modelo. O modelo real existente (`model_b3e792893e42fd40`, Ridge Regression) permaneceu `REJECTED` e foi recusado categoricamente em teste real no ciclo paper, ativando fallback limpo. 210 testes automatizados passando (198 no .venv padrão com 12 skipped; 210 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
+FASE 8.1 — Binance Private Integration Foundation: Implementação do módulo isolado `src/finbot/private_exchange.py` e configuração segura em `src/finbot/config.py`. Estabelecimento do separador explícito `TRADING_MODE` com default estrito `paper` (que bloqueia acesso à API privada). Modo `live` atua como barreira read-only nesta fase, permitindo exclusivamente a leitura normalizada de conta e saldos (`get_account_status`, `get_balances`, `get_balance`, `get_account_snapshot`). O campo `can_trade` do snapshot de conta é tratado estritamente como informativo sem autorizar ordens. Qualquer método de ordem (`create_order`, `cancel_order`) levanta `LiveTradingBlockedError`, garantindo que não existe caminho executável para criação ou cancelamento de ordens reais. Credenciais protegidas ativamente via `repr=False`, mascaramento de logs e exceções (`sanitize_secret_text`) e proibição de persistência. Tratamento de exceções fail-closed para credenciais ausentes, autenticação, rede e rate limits. 22 novos testes unitários e de isolamento adicionados, totalizando 232 testes automatizados (220 passando e 12 skipped no ambiente padrão; 232 passando 100% no ambiente research). Teste privado manual registrado como `NOT_RUN_NO_CREDENTIALS` sem invenção de chaves. Paper Soak Test de 72h no PC Forte 100% preservado e intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8 — Live Integration.
-
-
+FASE 8.2 — Execução de Ordens e Gestão de Posição Live (após término do Soak Test e validação operacional).

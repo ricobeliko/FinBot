@@ -434,10 +434,42 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Nenhuma credencial privada da Binance é utilizada; nenhuma ordem real é enviada; zero live trading. O ambiente operacional permanece local-first e o Paper Soak de 72h no PC Forte permaneceu ininterrupto e intocado.
 - **Motivo**: Estabelecer um arcabouço de segurança definitivo para a introdução progressiva de inteligência adaptativa no FinBot, garantindo contenção de riscos, reprodutibilidade, observabilidade e proteção total contra regressões operacionais.
 
+---
 
-
-
-
-
-
-
+### D028 — Binance Private Integration Foundation and Read-Only Live Boundary (Fase 8.1)
+- **Status**: Aceito
+- **Data**: FASE 8.1
+- **Contexto**: Estabelecer a fundação arquitetural para a integração privada com a Binance Spot via CCXT (`src/finbot/private_exchange.py`), garantindo autenticação segura, fronteira estrita entre Paper e Live, conformidade fail-closed, higienização rigorosa de credenciais e proibição absoluta de ordens reais nesta fase inicial de transição.
+- **Decisão**:
+  - **Módulo Isolado de Private Exchange (`src/finbot/private_exchange.py`)**:
+    - Reutilização da biblioteca CCXT já adotada no projeto, com `enableRateLimit: True` e foco exclusivo em Spot.
+    - Encapsulamento de chamadas autenticadas em métodos especializados com tipagem forte e precisão `Decimal` para saldos.
+  - **Fronteira Estrita entre Paper e Live**:
+    - Configuração explícita `trading_mode: str = "paper"` adicionada a `Config` e variáveis de ambiente (`TRADING_MODE`).
+    - Modos permitidos: `"paper"`, `"live"`. Default obrigatório: `"paper"`. Qualquer valor inválido reverte automaticamente para `"paper"`.
+    - O modo `paper` é impedido categoricamente de chamar endpoints privados ou instanciar o cliente privado (`InvalidConfigurationError`). O Paper Broker e o Paper Runner permanecem 100% isolados da API privada.
+  - **Escopo Estritamente READ-ONLY (Fase 8.1)**:
+    - Métodos implementados exclusivamente para inspeção da conta e saldos:
+      - `get_account_status() -> AccountStatus` (permissões da conta, flags `canTrade`, `canWithdraw`, `canDeposit`, tipo de conta);
+      - `get_balances(non_zero_only=True) -> dict[str, BalanceData]` (saldos com precisão Decimal);
+      - `get_balance(asset) -> BalanceData` (consulta de saldo específico com fallback seguro para zeros);
+      - `get_account_snapshot() -> AccountSnapshot` (snapshot estruturado e consolidado com timestamp UTC).
+  - **Barreiras Arquiteturais contra Execução de Ordens**:
+    - Zero endpoints de execução de ordens nesta fase.
+    - Métodos de ordem declarados (`create_order`, `cancel_order`) levantam imediatamente `LiveTradingBlockedError`.
+    - A flag `can_trade` do snapshot reflete estritamente a informação devolvida pela Binance e **não autoriza** nem desbloqueia execução de ordens na aplicação.
+  - **Gestão Segura de Credenciais e Proteção de Segredos**:
+    - Credenciais fornecidas exclusivamente via variáveis de ambiente (`BINANCE_API_KEY` e `BINANCE_API_SECRET`).
+    - NUNCA hardcoded no código, nunca persistidas em SQLite, nunca gravadas em artefatos ou datasets.
+    - `repr=False` aplicado aos campos de credenciais em `Config` e mascaramento customizado em `BinancePrivateExchange`, impedindo vazamento via `repr()`, `str()` ou `print()`.
+    - Sanitização ativa em mensagens de erro e exceções (`sanitize_secret_text`), substituindo qualquer ocorrência de chaves por `[REDACTED]`.
+  - **Princípio Fail-Closed**:
+    - Credenciais ausentes ou vazias levantam `CredentialsMissingError`.
+    - Falhas de autenticação levantam `AuthenticationError`.
+    - Violações de rate limit levantam `RateLimitError`.
+    - Erros de rede, DNS e timeouts levantam `NetworkError`.
+    - Respostas malformadas levantam `PrivateExchangeError`.
+    - Nenhum erro produz fallback silencioso para simulação ou operação real.
+  - **Recomendação de Permissões Mínimas**:
+    - Documentado que as API keys para a Fase 8.1 devem ter **exclusivamente permissão de LEITURA**. Permissões de Spot Trading e Saques (Withdrawals) devem permanecer desabilitadas na Binance.
+- **Motivo**: Construir a base de comunicação privada com a exchange sob padrões institucionais de segurança e contenção de risco, viabilizando reconciliação e auditoria de saldos antes de qualquer passo em direção ao envio de ordens.
