@@ -51,9 +51,11 @@ none
 - Python 3.12.10
 - projeto: D:\Projetos\FinBot
 - ambiente virtual: .venv
-- Git somente local
+- Git: repositório GitHub privado configurado (backup e sincronização sem CI/CD)
+  - Notebook: máquina de desenvolvimento, escrita de código, commits e push
+  - PC forte: clone/pull, testes locais completos, Paper Runner, Dashboard e runtime 24/7
 - branch: main
-- sem remote
+- remote: origin (https://github.com/ricobeliko/FinBot.git)
 
 ## Arquitetura pretendida
 - Python 3.12
@@ -89,6 +91,7 @@ none
 - D013: Adoção de Streamlit para Dashboard Local e Read-Only.
 - D014: Automação de Ciclos Paper Trading via Windows Task Scheduler.
 - D015: Telemetria Enxuta para Paper Soak Test e Rotação de Logs.
+- D016: Repositório GitHub Privado para Sincronização e Backup sem CI/CD.
 
 ## Último checkpoint
 Paper Soak Test iniciado e telemetria operacional homologada (FASE 7.6): telemetria atômica em SQLite `paper_state`, rotação de logs (5MB, 3 backups), isolamento de falhas de rede, CLI `--soak-status`, runner health no dashboard, 70 testes passando e tarefa agendada Windows ativa e executando a cada 1m.

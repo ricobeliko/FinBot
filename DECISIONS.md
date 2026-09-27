@@ -168,3 +168,17 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Isolamento de Falhas Transitórias**: Falhas de rede, timeouts ou indisponibilidade temporária de exchange incrementam o contador de falhas e registram o erro, mas jamais alteram ou corrompem o saldo fictício, a posição aberta, os trades executados ou o último candle processado. O próximo ciclo agendado recupera a saúde operacional sem intervenção manual.
   - **Rotação de Arquivos de Log**: Adoção de `RotatingFileHandler` da Standard Library com limite de 5 MB por arquivo e retenção de até 3 backups (`logs/finbot.log`), prevenindo saturação descontrolada de disco ao longo de execuções ininterruptas minuto a minuto.
 - **Motivo**: Observabilidade diagnóstica completa, segurança patrimonial inegociável, isolamento contra falhas de infraestrutura e conformidade estrita com o princípio da menor intervenção necessária.
+
+---
+
+### D016 — Adoção de Repositório GitHub Privado para Sincronização e Backup sem CI/CD
+- **Status**: Aceito
+- **Data**: FASE 7.6 / Transição
+- **Contexto**: Necessidade de manter backup privado do código, rastreamento de versões e fluxo de sincronização entre ambientes físicos distintos: Notebook (focado em desenvolvimento e commits) e PC Forte (focado em testes locais completos, Paper Runner, Dashboard e runtime 24/7).
+- **Decisão**: Configurar repositório remoto privado no GitHub (`https://github.com/ricobeliko/FinBot.git`) exclusivamente como camada de versionamento e backup do código-fonte:
+  - **Papel do Notebook**: Ambiente de desenvolvimento, escrita de código, execução de commits e envio (`git push origin main`).
+  - **Papel do PC Forte**: Ambiente de execução local contínua, sincronização (`git pull origin main`), execução de testes automatizados locais (`python -m unittest discover tests`), Paper Runner periódico e visualização de Dashboard.
+  - **Ausência Estrita de CI/CD**: Nenhum workflow do GitHub Actions (`.github/workflows/`), pipeline de nuvem, runner remoto ou deploy automático. O repositório é estritamente de armazenamento e transporte de código.
+  - **Testes Unitários Versionados (`tests/`)**: A suíte de testes permanece integralmente versionada no Git para ser executada de forma autônoma e offline em cada máquina local.
+  - **Isolamento de Estado Operacional (`data/finbot_paper.sqlite3`)**: O banco de dados SQLite local, dados de saldo paper, ordens simuladas, logs e variáveis de ambiente (`.env`) permanecem ignorados no `.gitignore` e restritos à máquina local em que operam.
+- **Motivo**: Segurança do patrimônio de código sem dependência de plataformas de automação em nuvem, garantia de execução e testes 100% locais e preservação da integridade da máquina de execução contínua.

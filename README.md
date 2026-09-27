@@ -30,7 +30,8 @@ Fornecer uma plataforma local-first, enxuta, determinística e segura para teste
 Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶ Storage
 ```
 
-- **Local-first**: Execução local no Windows.
+- **Local-first & Sincronização Privada**: Execução local no Windows. Repositório GitHub Privado utilizado exclusivamente para backup do código e sincronização entre Notebook (desenvolvimento/commits) e PC Forte (testes locais completos, Paper Runner e runtime 24/7). Sem CI/CD, sem GitHub Actions e com testes executados 100% localmente.
+- **Isolamento de Estado**: O banco operacional SQLite (`data/finbot_paper.sqlite3`), ordens simuladas, saldos e logs pertencem estritamente à máquina de execução local e não são versionados no Git.
 - **Segurança de Fluxo**: A estratégia nunca se comunica diretamente com a exchange; toda ordem passa pelo `Risk Manager`.
 - **Modos Futuros**: `MONITOR`, `BACKTEST`, `PAPER` e `LIVE` (bloqueado por padrão).
 
@@ -40,7 +41,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 
 - Windows
 - Python 3.12 (>=3.12,<3.13)
-- Git (apenas local)
+- Git (repositório privado para backup e sincronização)
 
 ---
 

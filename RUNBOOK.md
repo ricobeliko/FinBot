@@ -163,3 +163,29 @@ Executa toda a bateria de testes unitários determinísticos (70 testes cobrindo
 ```powershell
 python -m compileall src tests
 ```
+
+---
+
+## 12. Fluxo de Sincronização entre Notebook e PC Forte (GitHub Privado)
+
+O repositório privado (`https://github.com/ricobeliko/FinBot.git`) é utilizado unicamente para backup e transferência de código, sem CI/CD ou automações na nuvem.
+
+### 12.1 No Notebook (Desenvolvimento)
+Após implementar e validar alterações locais:
+```powershell
+git status
+git add .
+git commit -m "mensagem descritiva"
+git push origin main
+```
+
+### 12.2 No PC Forte (Testes Locais e Runtime 24/7)
+Para receber novas atualizações e validar antes de executar:
+```powershell
+git pull origin main
+python -m unittest discover tests
+python -m finbot.backtest
+powershell -ExecutionPolicy Bypass -File scripts\check_finbot.ps1
+```
+
+> **Nota Operacional**: O banco de dados operacional SQLite (`data/finbot_paper.sqlite3`), logs e eventuais arquivos `.env` são ignorados no Git e pertencem estritamente à máquina local em que o bot está executando.
