@@ -206,10 +206,18 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 7.9F — Features + Labels (Próxima Etapa)
-- Definição matemática e computação de features temporais derivadas exclusivamente de Decision Time
-- Implementação de horizontes futuros de retorno (labels/targets: `future_return_5`, `future_return_20`, etc.)
-- Normalização e validação de datasets de aprendizado
+### FASE 7.9F — Features + Labels (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/features.py` para geração determinística e offline de features e labels
+- [x] Especificação estrita da semântica temporal: `Candle[t] -> Decisão em Close[t] -> Execução em Open[t+1] -> Horizonte em Close[t+N]`
+- [x] Implementação de `FeatureSet` (FEATURE-SAFE) com grupos de Mercado, Estratégia, Indicadores derivados (`sma_distance`, `sma_ratio`), Estado e Contexto temporal UTC (`hour`, `day_of_week`)
+- [x] Garantia matemática de blindagem anti-leakage via filtragem prévia de histórico (`timestamp <= candle_timestamp`) e omissão de qualquer campo de resultado
+- [x] Implementação de `LabelSet` (OUTCOME-ONLY) calculando retornos futuros para horizontes 5, 20, 50 e 100 candles a partir da referência `Open[t+1]`
+- [x] Tratamento de dados futuros insuficientes com preservação estrita de `None` (`NULL`), sem conversão para zero ou fabricação de dados
+- [x] Funções de construção de dataset consolidado e exportação determinística para CSV e JSON em `data/lab/results/features_labels/` (ignorado no Git)
+- [x] Adição de 18 testes unitários e de integração em `tests/test_features_labels.py` (totalizando 152 testes no projeto)
+- [x] Validação smoke aprovada contra o dataset histórico real congelado de 10.000 candles de 5m
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
 ---
 

@@ -295,6 +295,36 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Isolamento**: Nenhuma dependência pesada de ML, nenhum ajuste automático de risco ou estratégia, e preservação integral do ambiente operacional e do Paper Soak Test de 72h no PC Forte.
 - **Motivo**: Criação de uma fundação sólida, determinística e auditável para o dataset de experiências, viabilizando as futuras Fases 7.9F (Features + Labels) e 7.9G (Adaptive Learning) com garantia matemática contra vazamento temporal.
 
+---
+
+### D024 — Especificação Matemática de Features e Labels sem Leakage (Fase 7.9F)
+- **Status**: Aceito
+- **Data**: FASE 7.9F
+- **Contexto**: Necessidade de transformar as experiências armazenadas no Experience Dataset em conjuntos concretos e determinísticos de Features (para entrada de modelos) e Labels (variáveis alvo de retornos futuros), assegurando conformidade matemática irrestrita com a semântica operacional do FinBot e eliminação total de *look-ahead bias* ou *data leakage*.
+- **Decisão**:
+  - **Preservação da Semântica Temporal Oficial**:
+    - `Candle[t]`: candle fechado que gera a decisão no instante `Close[t]`.
+    - `Candle[t+1]`: candle onde ocorre a execução no preço de abertura `Open[t+1]` (ou `execution_price`).
+    - `Candle[t+N]`: candle de encerramento do horizonte futuro no preço de fechamento `Close[t+N]`.
+  - **Conjunto de Features Decision-Safe (`FeatureSet`)**:
+    - *Mercado*: `price`, `open`, `high`, `low`, `close`, `volume` no instante da decisão.
+    - *Estratégia e Indicadores*: `short_window`, `long_window`, `sma_short`, `sma_long`, `sma_distance` (`sma_short - sma_long`), `sma_ratio` (`sma_short / sma_long`).
+    - *Estado*: `signal`, `signal_reason`, `position_before`, `risk_decision`, `risk_reason`, `risk_allowed`.
+    - *Contexto Temporal UTC*: `hour` (0..23) e `day_of_week` (0..6), derivados unicamente de `decision_at`.
+    - *Blindagem*: Nenhuma informação posterior a `Close[t]` é permitida no `FeatureSet`.
+  - **Definição Matemática dos Labels Futuros (`LabelSet`)**:
+    - Preço de Referência: $P_{ref} = Open[t+1]$ (ou `execution_price`).
+    - Retorno Futuro para Horizonte $N \in \{5, 20, 50, 100\}$:
+      $$\text{future\_return\_N} = \frac{Close[t+N] - P_{ref}}{P_{ref}}$$
+    - *Tratamento Estrito de Insuficiência*: Se $t+N \ge \text{len(candles)}$, o valor permanece obrigatoriamente `None` (`NULL`). É expressamente proibido preencher com 0 ou aproximar valores ausentes.
+    - *Postponement de Labels Categóricos/Direcionais e MFE/MAE*: Adoção de thresholds arbitrários para categorização de mercado (`UP/DOWN/FLAT`) e MFE/MAE foi postergada para a Fase 7.9G para evitar heurísticas não fundamentadas.
+  - **Módulo e Exportação**:
+    - Implementação de `src/finbot/features.py` exclusivamente na Standard Library do Python (zero novas dependências).
+    - Funções de exportação `export_features_labels_csv` e `export_features_labels_json` em `data/lab/results/features_labels/` (ignorado no Git).
+  - **Isolamento**: Zero frameworks de ML instalados, nenhum modelo treinado, nenhum ajuste dinâmico de risco e runtime operacional mantido intacto.
+- **Motivo**: Estabelecer um contrato matemático irrevogável, auditado e reproduzível entre o que o FinBot sabia no momento da decisão e o que o mercado fez posteriormente.
+
+
 
 
 

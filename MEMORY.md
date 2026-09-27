@@ -1,18 +1,16 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9E — Experience Dataset Foundation concluída no Notebook.
+FASE 7.9F — Features + Labels concluída no Notebook.
 
-### Experience Dataset (Memória Estruturada de Experiências)
-- Módulo canônico `src/finbot/experience.py` implementado com separação formal entre Decision Time e Outcome Time:
-  - `DecisionContext (FEATURE-SAFE)`: captura exclusivamente variáveis conhecidas em `decision_at` (OHLCV fechado, preço, sinal, parâmetros, avaliação de risco, execução).
-  - `OutcomeContext (OUTCOME-ONLY)`: captura variáveis descobertas pós-decisão (`outcome_at`, `exit_price`, `realized_pnl`, `realized_return`, `fees`, `mfe`, `mae`, `trade_duration`, horizontes futuros `future_return_*`, `outcome`).
-  - Blindagem anti-leakage garantida em código via `to_feature_dict()` e validação temporal estrita (`outcome_at >= decision_at`).
-  - Suporte explícito a Decision Experience (sinais HOLD, bloqueios pelo Risk Engine) e Trade Experience (operações executadas).
-  - Persistência atômica no SQLite local (`experiences` table) com deduplicação via `UNIQUE(source, source_id)`.
-  - Exportação determinística para CSV e JSON em `data/lab/results/experience/`.
-  - Tratamento de campos desconhecidos como `NULL` / `None`, sem valores fabricados ou aproximações com 0.
-- 134 testes automatizados (122 passando e 12 skipped no `.venv` padrão; 134 passando 100% no `.venv-research`).
+### Features + Labels (Contrato Matemático sem Leakage)
+- Módulo `src/finbot/features.py` implementado para transformação offline de experiências em features e labels determinísticos:
+  - `FeatureSet (FEATURE-SAFE)`: Mercado (price, open, high, low, close, volume), Estratégia/Indicadores (short/long windows, sma_short, sma_long, sma_distance, sma_ratio), Estado (signal, reason, position_before, risk_decision, risk_allowed) e Contexto Temporal UTC (hour 0..23, day_of_week 0..6).
+  - Blindagem anti-leakage em código: `extract_features` descarta preventivamente qualquer candle posterior a `candle_timestamp`.
+  - `LabelSet (OUTCOME-ONLY)`: Retornos futuros calculados rigorosamente a partir da execução em `Open[t+1]` para os horizontes de 5, 20, 50 e 100 candles (`Close[t+N]`).
+  - Preservação estrita de `None` (`NULL`) para dados futuros insuficientes, sem conversão para zero.
+  - Funções de construção e exportação determinística para CSV e JSON em `data/lab/results/features_labels/` (ignorado no Git).
+- 152 testes automatizados (140 passando e 12 skipped no `.venv` padrão; 152 passando 100% no `.venv-research`).
 - VectorBT permanece estritamente como dependência isolada de pesquisa (`.venv-research`).
 
 ### PAPER SOAK TEST (PC FORTE)
@@ -110,9 +108,10 @@ none
 - D021: Adoção de Walk-Forward Analysis (WFA) Temporal com Screening Híbrido no FinBot Lab.
 - D022: Avaliação de Robustez e Stress Testing do WFA (Fase 7.9D).
 - D023: Fundação do Experience Dataset e Blindagem Anti-Leakage (Fase 7.9E).
+- D024: Especificação Matemática de Features e Labels sem Leakage (Fase 7.9F).
 
 ## Último checkpoint
-Fundação do Experience Dataset (FASE 7.9E): Implementação de `src/finbot/experience.py` estabelecendo a memória canônica do FinBot. Separação formal e matemática entre Decision Time (feature-safe) e Outcome Time (outcome-only), validação de precedência temporal estrita anti-leakage (`outcome_at >= decision_at`), suporte a Decision Experience (HOLD, bloqueios de risco) e Trade Experience, persistência SQLite com deduplicação em `UNIQUE(source, source_id)` compatível com banco existente, e exportação determinística para CSV/JSON em `data/lab/results/experience/`. 134 testes passando (122 no .venv com 12 skipped isolados; 134 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
+Features + Labels (FASE 7.9F): Implementação de `src/finbot/features.py` estabelecendo a transformação determinística e offline de experiências em FeatureSet (decision-safe: mercado, estratégia, indicadores SMA, estado, UTC) e LabelSet (outcome-only: retornos futuros em 5, 20, 50 e 100 candles a partir de Open[t+1] até Close[t+N]). Blindagem anti-leakage comprovada matematicamente e por teste formal de mutação futura, tratamento de dados insuficientes preservando estritamente None (NULL), exportação CSV/JSON para `data/lab/results/features_labels/` e validação smoke com dataset real de 10.000 candles da Binance Spot. 152 testes passando (140 no .venv com 12 skipped isolados; 152 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9F — Features + Labels.
+FASE 7.9G — Adaptive Learning.
