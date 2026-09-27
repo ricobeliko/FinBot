@@ -160,6 +160,21 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.9C — Walk-Forward Analysis (WFA) (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Implementação do módulo `src/finbot/lab/wfa.py` com suporte a janelas deslizantes (rolling windows)
+- [x] Geração determinística de 6 janelas temporais contínuas (Train 4.000 / Test 1.000 / Step 1.000) cobrindo 10.000 candles
+- [x] Precedência temporal rigorosa auditada: `max(train_timestamp) < min(test_timestamp)` em todas as janelas
+- [x] Seleção Top N (20 candidatos) executada exclusivamente pelo screening VectorBT no Train de cada janela
+- [x] Reavaliação OOS independente no FinBot Lab (`Backtesting.py`) para cada candidato no respectivo Test
+- [x] Teste de isolamento anti-leakage comprovou que alterações em Test não afetam a seleção de parâmetros do Train
+- [x] Teste de reprodutibilidade determinística bit a bit aprovado
+- [x] Execução real sobre os 10.000 candles concluída em 148,79s com exportação em `data/lab/results/wfa/` (`wfa_windows.csv`, `wfa_summary.csv`, `wfa_results.json`)
+- [x] Adição de 7 testes unitários e de integração em `tests/test_lab_wfa.py` (totalizando 114 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação

@@ -1,18 +1,19 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9B — Prova do Pipeline Híbrido VectorBT + FinBot Lab concluída no Notebook.
+FASE 7.9C — Walk-Forward Analysis (WFA) concluída no Notebook.
 
 ### FinBot Lab (Pesquisa & Otimização Offline)
-- Arquitetura híbrida comprovada em `src/finbot/lab/hybrid.py`:
-  - Estágio 1: Screening ultrarrápido com VectorBT Community via Numba/NumPy em lotes de 1.000 combinações estritamente sobre a partição de TRAIN (6.000 candles).
-  - Estágio 2: Reavaliação OOS rigorosa e independente dos Top N candidatos no FinBot Lab (`Backtesting.py`) para Train, Validation e Test.
-- Alinhamento semântico auditado e comprovado: sinais no Close[t], deslocados via shift(1), executados no Open[t+1] (347 trades idênticos na SMA 5/10).
-- Ranqueamento smoke (9 combinações) 100% idêntico entre VectorBT e FinBot Lab.
-- Screening em escala: 1k (7,16s), 5k (45,08s), 10k (91,64s com ~2,19 GB de pico de RAM com batching).
-- Blindagem anti-leakage comprovada formalmente: mutações arbitrárias em Validation e Test produzem zero alteração no Top N gerado pelo screening de Train.
-- Reprodutibilidade 100% determinística confirmada.
-- 107 testes automatizados (101 passando e 6 skipped na suite padrão `.venv` devido à ausência do VectorBT de pesquisa; 7 testes do módulo híbrido passando 100% no ambiente `.venv-research`).
+- Módulo `src/finbot/lab/wfa.py` implementado com janelas deslizantes (rolling windows).
+- Análise Walk-Forward executada sobre o dataset congelado de 10.000 candles de 5m (Binance Spot):
+  - 6 janelas deslizantes de Train (4.000 candles / ~13,9 dias) e Test (1.000 candles / ~3,47 dias) com passo de 1.000 candles.
+  - Precedência temporal rigorosa: `max(train_timestamp) < min(test_timestamp)` em 100% das janelas.
+  - Seleção dos Top 20 candidatos em cada janela realizada exclusivamente no TRAIN via screening VectorBT.
+  - Avaliação Out-of-Sample (OOS) realizada independentemente no FinBot Lab (`Backtesting.py`).
+  - Execução real concluída em 148,79s com exportação em `data/lab/results/wfa/` (`wfa_windows.csv`, `wfa_summary.csv`, `wfa_results.json`).
+  - Estrutura de dados preparada para futura ingestão em Experience Dataset (sem ML nesta fase).
+- Blindagem anti-leakage e reprodutibilidade 100% comprovadas por testes unitários e de integração.
+- 114 testes automatizados (104 passando e 10 skipped na suite padrão `.venv` devido ao isolamento do VectorBT de pesquisa; 14 testes de pesquisa passando 100% no `.venv-research`).
 - VectorBT permanece estritamente como dependência isolada de pesquisa (`.venv-research`).
 
 ### PAPER SOAK TEST (PC FORTE)
@@ -107,9 +108,10 @@ none
 - D018: Auditoria Metodológica e Ingestão de Dataset Histórico Ampliado (10.000 candles).
 - D019: Benchmark Técnico Externo do FinBot Lab (VectorBT, Jesse, Freqtrade e Backtesting.py).
 - D020: Prova do Pipeline Híbrido VectorBT (Screening Train-Only) + FinBot Lab (OOS Evaluation).
+- D021: Adoção de Walk-Forward Analysis (WFA) Temporal com Screening Híbrido no FinBot Lab.
 
 ## Último checkpoint
-Prova do pipeline híbrido (FASE 7.9B): Comprovação experimental completa do pipeline híbrido de dois estágios. VectorBT realiza screening de até 10.000 combinações em ~91s exclusivamente sobre o Train (6.000 candles), seleção de Top N sem nenhum vazamento para Validation/Test, reavaliação out-of-sample independente via FinBot Lab / Backtesting.py, paridade exata de trades e teste formal anti-leakage 100% aprovado. PC Forte e Soak Test permanecem intocados.
+Walk-Forward Analysis (FASE 7.9C): Implementação e validação da análise Walk-Forward com 6 janelas deslizantes (Train 4.000 / Test 1.000 / Step 1.000) sobre o dataset de 10.000 candles de 5m. Seleção 100% baseada no Train com screening VectorBT e avaliação OOS independente com Backtesting.py. Testes de anti-leakage e reprodutibilidade aprovados, exportação em CSV/JSON concluída e 114 testes da suíte passando. PC Forte e Soak Test de 72h permanecem 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9C — Walk-Forward Analysis e Expansão de Espaço Amostral no FinBot Lab.
+FASE 7.9D — Modelagem e Estruturação do Experience Dataset para o Futuro Learning Engine.

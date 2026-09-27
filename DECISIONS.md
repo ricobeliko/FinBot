@@ -240,3 +240,21 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Isolamento de Dependência (Research-Only)**: O VectorBT permanece confinado exclusivamente ao ambiente de pesquisa (`.venv-research`) e não foi adicionado ao `pyproject.toml` ou `requirements.txt` da produção. O runtime operacional (Paper Runner, Risk Engine, Dashboard 8501) permanece 100% desacoplado e intocado.
 - **Motivo**: Aceleração de ~100x na triagem exploratória (10.000 combinações avaliadas em ~91s), mantendo bounded memory (~2.19 GB RAM), determinismo estrito e integridade metodológica sem concessões.
 
+---
+
+### D021 — Adoção de Walk-Forward Analysis (WFA) Temporal com Screening Híbrido no FinBot Lab
+- **Status**: Aceito
+- **Data**: FASE 7.9C
+- **Contexto**: Necessidade de validação quantitativa temporal dinâmica contra regimes de mercado mutáveis através de janelas deslizantes (*rolling windows*), assegurando que cada janela selecione parâmetros estritamente com base no passado disponível e seja avaliada de maneira puramente *out-of-sample* (OOS), sem *data leakage*.
+- **Decisão**:
+  - **Implementação do Módulo `finbot.lab.wfa`**:
+    - Fatiamento determinístico de janelas deslizantes: Train (4.000 candles), Test (1.000 candles) e Step (1.000 candles), gerando 6 janelas temporais sequenciais cobrindo o dataset de 10.000 candles de 5m da Binance Spot (~34,7 dias).
+    - Preservação de precedência temporal estrita: `train_end_time < test_start_time` auditado em cada janela.
+    - Seleção Top N (20 candidatos) executada exclusivamente pelo screening VectorBT no Train de cada janela.
+    - Reavaliação OOS independente de cada candidato no Test via FinBot Lab (`Backtesting.py`).
+  - **Isolamento e Blindagem Anti-Leakage**: Provado por teste automatizado que mutações arbitrárias nos dados de teste não afetam os parâmetros selecionados pelo treino.
+  - **Exportação Estruturada**: Persistência tabular em `data/lab/results/wfa/` (`wfa_windows.csv`, `wfa_summary.csv` e `wfa_results.json`) estruturada de forma padronizada para permitir futura ingestão em um *Experience Dataset*.
+  - **Isolamento Operacional**: O WFA permanece uma ferramenta de laboratório/pesquisa offline. Nenhuma funcionalidade de Machine Learning, aprendizado online ou alteração do Paper Runner / Risk Engine foi introduzida.
+- **Motivo**: Comprovação de consistência temporal, transparência na observação de degradação entre treino e teste em diferentes regimes de volatilidade, e consolidação metodológica sem violação do princípio *local-first*.
+
+
