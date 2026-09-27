@@ -1,17 +1,18 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9D — Robustez e Stress Testing do WFA concluída no Notebook.
+FASE 7.9E — Experience Dataset Foundation concluída no Notebook.
 
-### FinBot Lab (Pesquisa & Otimização Offline)
-- Módulo `src/finbot/lab/robustness.py` implementado para testes de estresse multidimensionais do WFA:
-  - Sensibilidade a Custos: 4 níveis de fee (-25%, baseline, +25%, +50%) com degradação linear e estabilidade de trades.
-  - Vizinhança de Parâmetros (3x3): 100% das janelas temporais classificadas como PLATÔ estável (desvio padrão interno ínfimo de 0,03% a 1,00%), sem detecção de falésias (cliffs).
-  - Sensibilidade ao Top N: subconjuntos de 5, 10 e 20 candidatos demonstraram invariância estatística (retorno médio entre -0,96% e -0,99%, taxa positiva estável em 17%).
-  - Sensibilidade Temporal: avaliações com Train de 3.000, 4.000 e 5.000 candles e Test de 500 candles demonstraram consistência estrutural de assimetria negativa e dependência de W3.
-  - Análise de Concentração e Estabilidade: quantificação descritiva da distribuição OOS (média de -1,04% vs -2,30% sem a janela positiva W3) e faixas de parâmetros ([3, 4] curta / [189, 300] longa).
-  - Persistência estruturada em `data/lab/results/robustness/` (`robustness_summary.csv`, `robustness_windows.csv`, `robustness_results.json`).
-- 121 testes automatizados (109 passando e 12 skipped na suite padrão `.venv` devido ao isolamento do VectorBT de pesquisa; 21 testes de pesquisa passando 100% no `.venv-research`).
+### Experience Dataset (Memória Estruturada de Experiências)
+- Módulo canônico `src/finbot/experience.py` implementado com separação formal entre Decision Time e Outcome Time:
+  - `DecisionContext (FEATURE-SAFE)`: captura exclusivamente variáveis conhecidas em `decision_at` (OHLCV fechado, preço, sinal, parâmetros, avaliação de risco, execução).
+  - `OutcomeContext (OUTCOME-ONLY)`: captura variáveis descobertas pós-decisão (`outcome_at`, `exit_price`, `realized_pnl`, `realized_return`, `fees`, `mfe`, `mae`, `trade_duration`, horizontes futuros `future_return_*`, `outcome`).
+  - Blindagem anti-leakage garantida em código via `to_feature_dict()` e validação temporal estrita (`outcome_at >= decision_at`).
+  - Suporte explícito a Decision Experience (sinais HOLD, bloqueios pelo Risk Engine) e Trade Experience (operações executadas).
+  - Persistência atômica no SQLite local (`experiences` table) com deduplicação via `UNIQUE(source, source_id)`.
+  - Exportação determinística para CSV e JSON em `data/lab/results/experience/`.
+  - Tratamento de campos desconhecidos como `NULL` / `None`, sem valores fabricados ou aproximações com 0.
+- 134 testes automatizados (122 passando e 12 skipped no `.venv` padrão; 134 passando 100% no `.venv-research`).
 - VectorBT permanece estritamente como dependência isolada de pesquisa (`.venv-research`).
 
 ### PAPER SOAK TEST (PC FORTE)
@@ -108,9 +109,10 @@ none
 - D020: Prova do Pipeline Híbrido VectorBT (Screening Train-Only) + FinBot Lab (OOS Evaluation).
 - D021: Adoção de Walk-Forward Analysis (WFA) Temporal com Screening Híbrido no FinBot Lab.
 - D022: Avaliação de Robustez e Stress Testing do WFA (Fase 7.9D).
+- D023: Fundação do Experience Dataset e Blindagem Anti-Leakage (Fase 7.9E).
 
 ## Último checkpoint
-Robustez e Stress Testing do WFA (FASE 7.9D): Bateria de estresse multidimensional executada sobre o WFA nos 10.000 candles de 5m. Comprovação de estabilidade local da vizinhança 3x3 de parâmetros (100% platô sem falésias), decaimento linear de custos sob 4 níveis de taxas, invariância estatística ao Top N preservado (5, 10, 20) e confirmação de assimetria negativa e dependência de W3 across janelas temporais (3k, 4k, 5k e test 500). 121 testes da suíte passando. PC Forte e Soak Test de 72h permanecem 100% intocados.
+Fundação do Experience Dataset (FASE 7.9E): Implementação de `src/finbot/experience.py` estabelecendo a memória canônica do FinBot. Separação formal e matemática entre Decision Time (feature-safe) e Outcome Time (outcome-only), validação de precedência temporal estrita anti-leakage (`outcome_at >= decision_at`), suporte a Decision Experience (HOLD, bloqueios de risco) e Trade Experience, persistência SQLite com deduplicação em `UNIQUE(source, source_id)` compatível com banco existente, e exportação determinística para CSV/JSON em `data/lab/results/experience/`. 134 testes passando (122 no .venv com 12 skipped isolados; 134 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9E — Modelagem Conceitual e Estruturação do Experience Dataset.
+FASE 7.9F — Features + Labels.

@@ -128,6 +128,56 @@ class PaperStorage:
                 );
             """)
 
+            # Tabela de experiências (FASE 7.9E - Experience Dataset Foundation)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS experiences (
+                    experience_id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    decision_at TEXT NOT NULL,
+                    candle_timestamp INTEGER NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    open REAL,
+                    high REAL,
+                    low REAL,
+                    close REAL,
+                    volume REAL,
+                    strategy_name TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    strategy_parameters TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    signal_reason TEXT NOT NULL,
+                    position_before TEXT NOT NULL,
+                    risk_decision TEXT NOT NULL,
+                    risk_reason TEXT NOT NULL,
+                    risk_allowed INTEGER NOT NULL,
+                    execution_price REAL,
+                    execution_quantity REAL,
+                    execution_fee REAL,
+                    outcome_at TEXT,
+                    exit_price REAL,
+                    realized_pnl REAL,
+                    realized_return REAL,
+                    fees REAL,
+                    mfe REAL,
+                    mae REAL,
+                    trade_duration REAL,
+                    future_return_5 REAL,
+                    future_return_20 REAL,
+                    future_return_50 REAL,
+                    future_return_100 REAL,
+                    outcome TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(source, source_id)
+                );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_source ON experiences(source);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_run_id ON experiences(run_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_decision_at ON experiences(decision_at);")
+
             # Seed account se vazia
             cur = conn.execute("SELECT COUNT(*) FROM paper_account;")
             if cur.fetchone()[0] == 0:

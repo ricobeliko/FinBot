@@ -273,5 +273,28 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Isolamento e Segurança**: Metodologia 100% diagnóstica e descritiva. Nenhuma decisão automática, pontuação mágica ou alteração no bot operacional foi permitida.
 - **Motivo**: Obtenção de evidências quantitativas fidedignas sobre a estabilidade local e fragilidades estruturais da estratégia antes de qualquer avanço para modelagem de aprendizado.
 
+---
+
+### D023 — Fundação do Experience Dataset e Blindagem Anti-Leakage (Fase 7.9E)
+- **Status**: Aceito
+- **Data**: FASE 7.9E
+- **Contexto**: Necessidade de estruturar uma memória persistente de experiências no FinBot ("o que o bot sabia no momento da decisão, o que decidiu/executou e o que aconteceu posteriormente") como base preparatória para futura aprendizagem adaptativa, assegurando separação metodológica estrita entre Decision Time e Outcome Time para impedir qualquer contaminação ou vazamento de dados futuros (*data leakage*).
+- **Decisão**:
+  - **Separação Formal entre Decision Time e Outcome Time**:
+    - *DecisionContext (FEATURE-SAFE)*: Registra exclusivamente variáveis disponíveis no instante `decision_at` (`candle_timestamp`, `symbol`, `timeframe`, `price`, OHLCV do candle fechado, `strategy_name`, `strategy_version`, `strategy_parameters`, `signal`, `signal_reason`, `position_before`, `risk_decision`, `risk_reason`, `risk_allowed`, dados de execução se aplicável). `to_feature_dict()` extrai exclusivamente estes campos.
+    - *OutcomeContext (OUTCOME-ONLY)*: Registra exclusivamente informações conhecidas após `decision_at` (`outcome_at`, `exit_price`, `realized_pnl`, `realized_return`, `fees`, `mfe`, `mae`, `trade_duration`, horizontes de retorno futuro `future_return_5/20/50/100`, `outcome`). Inicia nulo/vazio para decisões em andamento.
+  - **Contrato Anti-Leakage e Validação Temporal**:
+    - Validação matemática estrita: `outcome_at >= decision_at` quando ambos existem, disparando exceção imediata caso ocorra violação de precedência temporal.
+    - Campos desconhecidos permanecem estritamente `NULL` / `None`, sendo proibido o preenchimento artificial ou aproximações com `0`.
+  - **Experiência Além de Trade**: A arquitetura suporta tanto *Decision Experiences* (sinais `HOLD` ou decisões bloqueadas pelo Risk Engine, sem execução financeira) quanto *Trade Experiences* (operações executadas com desfecho posterior).
+  - **Persistência SQLite e Deduplicação**:
+    - Criação idempotente da tabela `experiences` e índices associados no SQLite local (`data/finbot_paper.sqlite3`), compatível com o banco operacional existente sem necessidade de reset ou destruição de dados.
+    - Chave única de integridade e deduplicação baseada em `UNIQUE(source, source_id)`, evitando registros duplicados.
+  - **Exportação Determinística**:
+    - Métodos `export_to_csv` e `export_to_json` determinísticos, ordenados cronologicamente e protegidos no `.gitignore` sob `data/lab/results/experience/`.
+  - **Isolamento**: Nenhuma dependência pesada de ML, nenhum ajuste automático de risco ou estratégia, e preservação integral do ambiente operacional e do Paper Soak Test de 72h no PC Forte.
+- **Motivo**: Criação de uma fundação sólida, determinística e auditável para o dataset de experiências, viabilizando as futuras Fases 7.9F (Features + Labels) e 7.9G (Adaptive Learning) com garantia matemática contra vazamento temporal.
+
+
 
 

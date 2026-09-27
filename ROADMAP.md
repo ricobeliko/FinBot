@@ -189,6 +189,48 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.9E — Experience Dataset Foundation (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/experience.py` com o modelo canônico de experiência
+- [x] Separação estrita e formal entre Decision Time (`DecisionContext`) e Outcome Time (`OutcomeContext`)
+- [x] Blindagem anti-leakage via `to_feature_dict()` que omite 100% dos dados de desfecho
+- [x] Validação temporal matemática estrita (`outcome_at >= decision_at`) com rejeição de violações
+- [x] Distinção explícita entre Decision Experience (sinais HOLD, bloqueios de risco) e Trade Experience (execuções com outcome)
+- [x] Persistência local em SQLite (`experiences` table) idempotente e compatível com o banco operacional existente sem reset
+- [x] Deduplicação determinística baseada na constraint `UNIQUE(source, source_id)`
+- [x] Suporte à proveniência explícita (`source`: paper, backtest, wfa, research; `source_id`, `run_id`)
+- [x] Exportação determinística para CSV plano e JSON estruturado em `data/lab/results/experience/` (ignorado no Git)
+- [x] Tratamento rigoroso de campos ausentes: permanecem estritamente `NULL` / `None`, sem valores fabricados
+- [x] Adição de 13 testes unitários metodológicos em `tests/test_experience.py` (totalizando 134 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+---
+
+### FASE 7.9F — Features + Labels (Próxima Etapa)
+- Definição matemática e computação de features temporais derivadas exclusivamente de Decision Time
+- Implementação de horizontes futuros de retorno (labels/targets: `future_return_5`, `future_return_20`, etc.)
+- Normalização e validação de datasets de aprendizado
+
+---
+
+### FASE 7.9G — Adaptive Learning
+- Treinamento offline de modelos de aprendizagem supervisionada sobre o Experience Dataset
+- Avaliação de modelos contra métricas quantitativas de performance e generalização
+
+---
+
+### FASE 7.9H — Model Validation / Registry
+- Auditoria de modelos gerados, matrizes de confusão e versionamento no registry local
+- Testes contra sobreajuste e stress testing de predições
+
+---
+
+### FASE 7.9I — Adaptive Paper
+- Integração controlada de predições com o Paper Trading em ambiente isolado de validação
+- Avaliação de impacto de decisões adaptativas em forward testing
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação
