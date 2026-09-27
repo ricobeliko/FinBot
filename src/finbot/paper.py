@@ -7,12 +7,13 @@ NENHUMA ordem é enviada a qualquer exchange.
 """
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
 import sys
 
+from finbot.adaptive import AdaptiveCycleResult, evaluate_adaptive_cycle
 from finbot.config import Config, get_config
 from finbot.exchange import CandleData, close_exchange, create_exchange, fetch_candles, fetch_ticker
 from finbot.logging_setup import setup_logging
@@ -77,6 +78,7 @@ class PaperCycleResult:
     trades_count: int
     message: str = ""
     risk_decision: RiskDecision | None = None
+    adaptive_result: AdaptiveCycleResult | None = None
 
 
 def execute_paper_cycle(
@@ -202,6 +204,22 @@ def execute_paper_cycle(
     # Persiste último sinal avaliado para visualização no dashboard
     storage.record_signal(eval_res.signal.value, eval_res.reason, now_iso)
 
+    # 4.1 Avaliação adaptativa (FASE 7.9I — Adaptive Paper com Shadow Mode e Fallback)
+    adaptive_res = evaluate_adaptive_cycle(
+        config=config,
+        closed_candles=closed_candles,
+        latest_closed=latest_closed,
+        existing_signal=eval_res.signal,
+        existing_reason=eval_res.reason,
+        position=position,
+        account=account,
+        storage=None,  # Será persistido com a decisão do Risk Engine
+        now_iso=now_iso,
+    )
+
+    operational_signal = adaptive_res.final_signal
+    operational_reason = adaptive_res.decision_reason
+
     # 5. Avaliação pelo Risk Engine (autoridade obrigatória)
     timeframe_ms = timeframe_to_ms(config.paper_timeframe)
     kill_switch_active = storage.get_kill_switch(default=config.risk_kill_switch)
@@ -212,8 +230,8 @@ def execute_paper_cycle(
     risk_decision = risk_engine.evaluate(
         account=account,
         position=position,
-        signal=eval_res.signal,
-        signal_reason=eval_res.reason,
+        signal=operational_signal,
+        signal_reason=operational_reason,
         current_price=trade_price,
         candle_timestamp=latest_closed.timestamp,
         timeframe_ms=timeframe_ms,
@@ -221,6 +239,15 @@ def execute_paper_cycle(
         daily_realized_pnl=daily_pnl,
         last_closed_trade_candle_ts=last_closed_ts,
     )
+
+    # Persiste predição adaptativa se gerada (Shadow ou Adaptive) com auditoria de risco
+    if adaptive_res.record is not None:
+        record_to_save = replace(
+            adaptive_res.record,
+            risk_decision=risk_decision.code.value,
+            risk_reason=risk_decision.reason,
+        )
+        storage.record_adaptive_prediction(record_to_save.to_dict())
 
     # 6. Execução das decisões autorizadas ou registro de bloqueios de risco
     if not risk_decision.allowed:
@@ -245,7 +272,7 @@ def execute_paper_cycle(
         logger.info(
             "Ciclo Paper Trading finalizado: Ação %s (sinal=%s, risco=%s: %s).",
             trade_action,
-            eval_res.signal.value,
+            operational_signal.value,
             risk_decision.code.value,
             risk_decision.reason,
         )
@@ -256,8 +283,8 @@ def execute_paper_cycle(
             timeframe=config.paper_timeframe,
             closed_candle_time=latest_closed.formatted_time,
             closed_candle_timestamp=latest_closed.timestamp,
-            signal=eval_res.signal,
-            signal_reason=eval_res.reason,
+            signal=operational_signal,
+            signal_reason=operational_reason,
             trade_action=trade_action,
             executed_trade=None,
             account=account,
@@ -265,6 +292,7 @@ def execute_paper_cycle(
             trades_count=trades_count,
             message=risk_decision.reason,
             risk_decision=risk_decision,
+            adaptive_result=adaptive_res,
         )
 
     if risk_decision.action == "SELL":
@@ -338,8 +366,8 @@ def execute_paper_cycle(
             timeframe=config.paper_timeframe,
             closed_candle_time=latest_closed.formatted_time,
             closed_candle_timestamp=latest_closed.timestamp,
-            signal=eval_res.signal,
-            signal_reason=eval_res.reason,
+            signal=operational_signal,
+            signal_reason=operational_reason,
             trade_action=trade_action,
             executed_trade=executed_trade,
             account=new_account,
@@ -347,6 +375,7 @@ def execute_paper_cycle(
             trades_count=trades_count + 1,
             message=msg,
             risk_decision=risk_decision,
+            adaptive_result=adaptive_res,
         )
 
     if risk_decision.action == "BUY":
@@ -411,8 +440,8 @@ def execute_paper_cycle(
             timeframe=config.paper_timeframe,
             closed_candle_time=latest_closed.formatted_time,
             closed_candle_timestamp=latest_closed.timestamp,
-            signal=Signal.BUY,
-            signal_reason=eval_res.reason,
+            signal=operational_signal,
+            signal_reason=operational_reason,
             trade_action="BUY_EXECUTED",
             executed_trade=executed_trade,
             account=new_account,
@@ -420,6 +449,7 @@ def execute_paper_cycle(
             trades_count=trades_count + 1,
             message="Paper BUY executado com sucesso.",
             risk_decision=risk_decision,
+            adaptive_result=adaptive_res,
         )
 
     # Signal.HOLD ou ação HOLD autorizada sem alteração financeira
@@ -428,11 +458,11 @@ def execute_paper_cycle(
         result="HOLD",
         timestamp_iso=now_iso,
         is_success=True,
-        message=eval_res.reason,
+        message=operational_reason,
     )
     logger.info(
         "Ciclo Paper Trading finalizado: HOLD (motivo=%s, candle=%s).",
-        eval_res.reason,
+        operational_reason,
         latest_closed.formatted_time,
     )
     return PaperCycleResult(
@@ -441,8 +471,8 @@ def execute_paper_cycle(
         timeframe=config.paper_timeframe,
         closed_candle_time=latest_closed.formatted_time,
         closed_candle_timestamp=latest_closed.timestamp,
-        signal=Signal.HOLD,
-        signal_reason=eval_res.reason,
+        signal=operational_signal,
+        signal_reason=operational_reason,
         trade_action="HOLD",
         executed_trade=None,
         account=account,
@@ -450,6 +480,7 @@ def execute_paper_cycle(
         trades_count=trades_count,
         message="HOLD: nenhuma alteração financeira.",
         risk_decision=risk_decision,
+        adaptive_result=adaptive_res,
     )
 
 

@@ -399,6 +399,42 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Zero ordens reais, zero chamadas à Binance e runtime operacional mantido intacto.
 - **Motivo**: Assegurar governança, rastreabilidade e rigor científico no ciclo de vida de modelos preditivos, impedindo que modelos deficientes ou contaminados por vazamento temporal avancem para etapas de execução financeira simulada ou real.
 
+---
+
+### D027 — Adaptive Paper Safety Architecture (Fase 7.9I)
+- **Status**: Aceito
+- **Data**: FASE 7.9I
+- **Contexto**: Desenvolver a infraestrutura de execução experimental adaptativa em Paper Trading com Shadow Mode e Adaptive Mode sob governança rigorosa do Model Registry, assegurando que modelos de machine learning só possam ser avaliados ou influenciar decisões de forma controlada, com fallback seguro, fail-closed por padrão e soberania irrestrita do Risk Engine e da Strategy Engine.
+- **Decisão**:
+  - **Hierarquia Operacional e Preservação Arquitetural**:
+    - A Strategy Engine existente (SMA Crossover) permanece como a autoridade primária e geradora do sinal base em todos os ciclos.
+    - O Risk Engine existente mantém soberania absoluta e poder de veto sobre 100% das intenções operacionais geradas, sejam elas originadas pela estratégia convencional ou pela recomendação adaptativa do modelo.
+    - O Paper Broker (`PaperStorage.execute_trade_transaction`) e os mecanismos de execução financeira fictícia permanecem 100% inalterados e protegidos contra alterações destrutivas.
+  - **Modos Operacionais Suportados**:
+    - `off` (**Default obrigatório**): A camada adaptativa permanece inativa. A execução segue estritamente a estratégia convencional e o Risk Engine sem qualquer sobrecarga ou alteração comportamental.
+    - `shadow`: O modelo recebe os dados no momento da decisão, calcula a inferência e registra formalmente no SQLite a recomendação adaptativa e métricas de concordância/divergência (`MODEL_DISAGREEMENT`), mas `final_signal` permanece **estritamente idêntico** ao `existing_signal`. Nenhuma ordem é alterada pelo modelo.
+    - `adaptive`: O modelo validado propõe recomendações (`LONG_BIAS` / `NO_LONG_BIAS`) que podem orientar a tomada de decisão para avaliação do Risk Engine. Caso o modelo seja recusado ou ocorra qualquer erro, o sistema ativa fallback imediato para a estratégia convencional.
+  - **Requisito Obrigatório de Model Registry e Status VALIDATED**:
+    - Apenas modelos formalmente cadastrados no `ModelRegistry` com status `VALIDATED` pelo Validation Gate podem ser carregados para execução.
+    - Modelos com status `CANDIDATE`, `REJECTED` ou `REVOKED` são bloqueados categoricamente em tempo de carga (`load_validated_model`).
+    - Modelos não encontrados no Registry (`MODEL_NOT_FOUND`) ou ausência de modelo configurado (`NO_MODEL_CONFIGURED`) são bloqueados.
+    - O único modelo real registrado até o momento (`model_b3e792893e42fd40`, Ridge Regression) permaneceu com status `REJECTED`, sendo expressamente recusado em todos os testes reais.
+  - **Verificação Criptográfica de Integridade e Fingerprints**:
+    - Antes de qualquer inferência, o manifesto do modelo é reauditado contra seus hashes criptográficos: dataset fingerprint, feature fingerprint e target fingerprint.
+    - Qualquer divergência ou adulteração resulta em bloqueio imediato com erro `MODEL_INTEGRITY_FAILURE` (fail-closed).
+  - **Princípio Fail-Closed e Fallback Seguro**:
+    - Qualquer anomalia na carga, ausência de parâmetros, erro de pré-processamento, exceção de cálculo ou valor numérico inválido (`NaN` ou `Inf`) na predição ativa imediatamente o fallback para a estratégia convencional, registrando o motivo de fallback e impedindo que exceções se propaguem ou interrompam o Paper Runner.
+  - **Limitações Estritas do Modo Adaptativo**:
+    - O FinBot permanece estritamente Long-Only Spot (sem vendas a descoberto / short).
+    - O modelo adaptativo emite apenas recomendações direcionais simples (`LONG_BIAS` / `NO_LONG_BIAS`), sem forçar entradas em posições já existentes (`MAX_POSITION`) nem burlar regras de risco, cooldown ou kill switch.
+  - **Dataset Separado de Predições Adaptativas (`adaptive_predictions`)**:
+    - Armazenamento em tabela SQLite dedicada na base do Paper Trading, auditando `prediction_id`, `timestamp`, `model_id`, `model_status`, `prediction`, `existing_signal`, `adaptive_recommendation`, `final_signal`, `is_disagreement`, `risk_decision` e `fallback_reason`.
+    - Separação estrita entre predições de decisão e o dataset de experiências/outcomes (`experiences`).
+  - **Ausência Completa de Live Trading**:
+    - Nenhuma credencial privada da Binance é utilizada; nenhuma ordem real é enviada; zero live trading. O ambiente operacional permanece local-first e o Paper Soak de 72h no PC Forte permaneceu ininterrupto e intocado.
+- **Motivo**: Estabelecer um arcabouço de segurança definitivo para a introdução progressiva de inteligência adaptativa no FinBot, garantindo contenção de riscos, reprodutibilidade, observabilidade e proteção total contra regressões operacionais.
+
+
 
 
 

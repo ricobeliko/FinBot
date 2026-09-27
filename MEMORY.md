@@ -1,21 +1,20 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9H — Model Validation / Registry concluída no Notebook.
+FASE 7.9I — Adaptive Paper concluída no Notebook.
 
-### Model Validation / Registry (Governança e Validação Científica sem Leakage)
-- Módulo `src/finbot/lab/model_registry.py` implementado para validação formal e versionamento local:
-  - *Identidade e Fingerprints Determinísticos*: `model_id` via SHA-256 do payload canônico; `dataset_fingerprint` (dados históricos), `feature_fingerprint` (ordem e versão) e `target_fingerprint` (semântica e horizonte).
-  - *Manifesto Estruturado (`ModelManifest`)*: Metadados científicos completos, proveniência, ranges temporais, hiperparâmetros, pré-processamento e métricas de Treino/Validação/Teste e baseline.
-  - *Estados Formais*: `CANDIDATE`, `VALIDATED`, `REJECTED`, `REVOKED`.
-  - *Validation Gate*: Auditoria determinística em 7 checagens (integridade de dataset, features sem campos proibidos, target, ordenação temporal estrita $\max(Train) < \min(Val) < \min(Test)$, ausência de shuffle/leakage e superioridade out-of-sample vs baseline).
-  - *Regra de Generalização*: Proibição de validar modelos com base em Treino. Modelos sem superioridade out-of-sample (Val/Test) são formalmente rejeitados.
-  - *Registro do Modelo Real da F7.9G*: Ridge ($\alpha=1.0$) processado e registrado como `REJECTED` por `MODEL_DOES_NOT_BEAT_BASELINE` (MAE Val: 0.003605 vs 0.003387; MAE Test: 0.004995 vs 0.003608).
-  - *Storage Append-Only*: SQLite local (`model_registry.sqlite3`) com tabela imutável `model_audit_log` e exportação para CSV e JSON em `data/lab/results/model_registry/` (ignorado no Git).
-  - *CLI Local*: Suporte a comandos `list`, `show` e `validate` via `python -m finbot.lab.model_registry`.
-  - *Isolamento Arquitetural*: Zero dependência ou importação nos módulos operacionais (`paper`, `risk`, `strategy`).
-- 196 testes automatizados (184 passando e 12 skipped no `.venv` padrão; 196 passando 100% no `.venv-research`).
-- VectorBT, scikit-learn e Registry permanecem estritamente restritos à pesquisa (`.venv-research` / `finbot.lab`). Zero ML em produção.
+### Adaptive Paper (Shadow Mode, Fail-Closed e Fallback Seguro)
+- Módulo `src/finbot/adaptive.py` implementado para avaliação adaptativa sob rigorosa governança:
+  - *Modos Suportados*: `off` (**Default obrigatório**), `shadow` (predição registrada sem alteração da decisão) e `adaptive` (recomendação adaptativa com fallback seguro).
+  - *Registry Obrigatório e Gate de Validação*: Apenas modelos com status `VALIDATED` no `ModelRegistry` podem ser carregados (`load_validated_model`). Modelos `CANDIDATE`, `REJECTED`, `REVOKED`, inexistentes ou sem model_id configurado são bloqueados categoricamente (fail-closed).
+  - *Verificação Criptográfica de Integridade*: Manifesto do modelo é validado contra dataset fingerprint, feature fingerprint e target fingerprint antes de qualquer inferência (`MODEL_INTEGRITY_FAILURE`).
+  - *Soberania do Risk Engine*: A Strategy Engine (SMA) e o Risk Engine mantêm soberania total. Nenhuma predição adaptativa ignora limites de risco (`MAX_POSITION`, `KILL_SWITCH_ACTIVE`, `INSUFFICIENT_BALANCE`, `STOP_LOSS`, etc.).
+  - *Shadow Mode e Detecção de Divergências*: Gravação de registros estruturados em `adaptive_predictions` no SQLite, rastreando `adaptive_recommendation` (`LONG_BIAS` / `NO_LONG_BIAS`), `final_signal == existing_signal` e `is_disagreement`.
+  - *Fallback Imediato*: Qualquer erro de inferência (`NaN`, `Inf` ou exceção) dispara fail-closed e fallback transparente para a estratégia existente sem interrupção do Paper Runner.
+  - *Auditoria do Modelo Real*: O único modelo real registrado (`model_b3e792893e42fd40`, Ridge Regression) permaneceu `REJECTED` e foi bloqueado com sucesso (`MODEL_REJECTED`) em testes reais.
+  - *Preservação de Regressão*: Paper Trading em modo `off` mantém comportamento idêntico à linha de base.
+- 210 testes automatizados (198 passando e 12 skipped no `.venv` padrão; 210 passando 100% no `.venv-research`).
+- VectorBT, scikit-learn e Registry continuam restritos à pesquisa e ao ambiente de desenvolvimento. Zero live trading, zero API keys.
 
 ### PAPER SOAK TEST (PC FORTE)
 Data/hora UTC: 2026-09-27T00:11:58Z
@@ -115,11 +114,12 @@ none
 - D024: Especificação Matemática de Features e Labels sem Leakage (Fase 7.9F).
 - D025: Adaptive Learning Foundation (Fase 7.9G).
 - D026: Model Validation and Registry (Fase 7.9H).
+- D027: Adaptive Paper Safety Architecture (Fase 7.9I).
 
 ## Último checkpoint
-Model Validation / Registry (FASE 7.9H): Implementação de `src/finbot/lab/model_registry.py` estabelecendo a governança, integridade e versionamento local de modelos de pesquisa de forma determinística e append-only (Fingerprints de Dataset, Features e Target; model_id criptográfico; estados CANDIDATE, VALIDATED, REJECTED, REVOKED; Validation Gate com 7 auditorias de causalidade temporal, ausência de leakage e superioridade OOS vs baseline; storage SQLite local `model_registry.sqlite3` com tabela de auditoria imutável; relatórios em `data/lab/results/model_registry/` e CLI local). O modelo real da F7.9G (Ridge em 10k candles) foi registrado e classificado formalmente como `REJECTED` pelo motivo `MODEL_DOES_NOT_BEAT_BASELINE`. 196 testes passando (184 no .venv padrão com 12 skipped isolados; 196 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
+Adaptive Paper (FASE 7.9I): Implementação de `src/finbot/adaptive.py` e integração controlada com o ciclo de Paper Trading (`execute_paper_cycle`), estabelecendo Shadow Mode (`MODE_SHADOW`), Adaptive Mode (`MODE_ADAPTIVE`) e modo inativo por padrão (`MODE_OFF`). Salvaguardas rigorosas implementadas: requisito mandatório de modelos formalmente com status `VALIDATED` no `ModelRegistry`; bloqueio automático (fail-closed) para modelos `CANDIDATE`, `REJECTED`, `REVOKED`, inexistentes ou sem model_id; verificação criptográfica de integridade de manifestos e fingerprints; soberania estrita do Risk Engine e da Strategy Engine sobre qualquer recomendação adaptativa; persistência dedicada em `adaptive_predictions` no SQLite e métricas acumuladas de divergência; e fallback seguro e imediato em qualquer caso de anomalia de inferência ou modelo. O modelo real existente (`model_b3e792893e42fd40`, Ridge Regression) permaneceu `REJECTED` e foi recusado categoricamente em teste real no ciclo paper, ativando fallback limpo. 210 testes automatizados passando (198 no .venv padrão com 12 skipped; 210 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9I — Adaptive Paper.
+FASE 8 — Live Integration.
 
 

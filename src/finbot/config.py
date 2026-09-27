@@ -33,6 +33,9 @@ class Config:
     risk_cooldown_candles: int = 1
     risk_stop_loss_pct: float = 0.02
     risk_kill_switch: bool = False
+    adaptive_mode: str = "off"
+    adaptive_model_id: str = ""
+    adaptive_registry_db: str = "data/lab/results/model_registry/model_registry.sqlite3"
 
 
 def get_config() -> Config:

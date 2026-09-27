@@ -178,6 +178,36 @@ class PaperStorage:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_run_id ON experiences(run_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_decision_at ON experiences(decision_at);")
 
+            # Tabela de predições adaptativas (FASE 7.9I - Adaptive Paper)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS adaptive_predictions (
+                    prediction_id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    candle_timestamp INTEGER NOT NULL,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    model_id TEXT,
+                    model_status TEXT NOT NULL,
+                    feature_fingerprint TEXT,
+                    target_name TEXT,
+                    prediction REAL,
+                    prediction_valid INTEGER NOT NULL,
+                    mode TEXT NOT NULL,
+                    existing_signal TEXT NOT NULL,
+                    adaptive_recommendation TEXT,
+                    adaptive_signal TEXT,
+                    final_signal TEXT NOT NULL,
+                    is_disagreement INTEGER NOT NULL,
+                    risk_decision TEXT,
+                    risk_reason TEXT,
+                    fallback_reason TEXT,
+                    created_at TEXT NOT NULL
+                );
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pred_candle ON adaptive_predictions(candle_timestamp);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pred_model ON adaptive_predictions(model_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pred_mode ON adaptive_predictions(mode);")
+
             # Seed account se vazia
             cur = conn.execute("SELECT COUNT(*) FROM paper_account;")
             if cur.fetchone()[0] == 0:
@@ -557,6 +587,7 @@ class PaperStorage:
                 "entry_price = '0.00', entry_timestamp = '' WHERE id = 1;"
             )
             conn.execute("DELETE FROM paper_trades;")
+            conn.execute("DELETE FROM adaptive_predictions;")
             conn.execute(
                 "DELETE FROM paper_state WHERE key IN ("
                 "'last_processed_candle_timestamp', 'kill_switch', 'last_risk_block', "
@@ -565,3 +596,74 @@ class PaperStorage:
                 "'soak_start_timestamp', 'total_cycles', 'successful_cycles', 'failed_cycles', 'deduplicated_cycles', "
                 "'last_error', 'last_error_timestamp');"
             )
+
+    def record_adaptive_prediction(self, record_dict: dict[str, Any]) -> None:
+        """Persiste um registro de predição adaptativa (Shadow ou Adaptive) de forma atômica."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO adaptive_predictions (
+                    prediction_id, timestamp, candle_timestamp, symbol, timeframe,
+                    model_id, model_status, feature_fingerprint, target_name,
+                    prediction, prediction_valid, mode, existing_signal,
+                    adaptive_recommendation, adaptive_signal, final_signal,
+                    is_disagreement, risk_decision, risk_reason, fallback_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_dict["prediction_id"],
+                    record_dict["timestamp"],
+                    record_dict["candle_timestamp"],
+                    record_dict["symbol"],
+                    record_dict["timeframe"],
+                    record_dict.get("model_id"),
+                    record_dict["model_status"],
+                    record_dict.get("feature_fingerprint"),
+                    record_dict.get("target_name"),
+                    record_dict.get("prediction"),
+                    1 if record_dict.get("prediction_valid") else 0,
+                    record_dict["mode"],
+                    record_dict["existing_signal"],
+                    record_dict.get("adaptive_recommendation"),
+                    record_dict.get("adaptive_signal"),
+                    record_dict["final_signal"],
+                    1 if record_dict.get("is_disagreement") else 0,
+                    record_dict.get("risk_decision"),
+                    record_dict.get("risk_reason"),
+                    record_dict.get("fallback_reason"),
+                    record_dict.get("created_at") or datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+
+    def get_adaptive_predictions(self, limit: int = 100, mode: str | None = None) -> list[dict[str, Any]]:
+        """Retorna histórico ordenado das predições adaptativas."""
+        with self.connection() as conn:
+            query = "SELECT * FROM adaptive_predictions"
+            params: list[Any] = []
+            if mode:
+                query += " WHERE mode = ?"
+                params.append(mode)
+            query += " ORDER BY candle_timestamp DESC, timestamp DESC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_adaptive_metrics(self) -> dict[str, Any]:
+        """Calcula métricas agregadas do Shadow/Adaptive dataset."""
+        with self.connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM adaptive_predictions").fetchone()[0]
+            valid = conn.execute("SELECT COUNT(*) FROM adaptive_predictions WHERE prediction_valid = 1").fetchone()[0]
+            invalid = conn.execute("SELECT COUNT(*) FROM adaptive_predictions WHERE prediction_valid = 0").fetchone()[0]
+            disagreements = conn.execute("SELECT COUNT(*) FROM adaptive_predictions WHERE is_disagreement = 1").fetchone()[0]
+            agreements = total - disagreements
+
+            return {
+                "total_predictions": total,
+                "valid_predictions": valid,
+                "invalid_predictions": invalid,
+                "agreements": agreements,
+                "disagreements": disagreements,
+                "agreement_rate": (agreements / total) if total > 0 else 1.0,
+            }
+

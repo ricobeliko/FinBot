@@ -261,9 +261,22 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 7.9I — Adaptive Paper ← PRÓXIMA
-- Integração controlada de predições com o Paper Trading em ambiente isolado de validação
-- Avaliação de impacto de decisões adaptativas em forward testing
+### FASE 7.9I — Adaptive Paper (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/adaptive.py` com o motor de avaliação adaptativa e salvaguardas de execução
+- [x] Configuração centralizada com `ADAPTIVE_MODE='off'` por padrão e suporte a modos `off`, `shadow` e `adaptive`
+- [x] Requisito mandatório de Registry e status `VALIDATED` em `load_validated_model`
+- [x] Bloqueio fail-closed para modelos `CANDIDATE`, `REJECTED`, `REVOKED`, inexistentes ou sem model_id configurado
+- [x] Verificação criptográfica de integridade do manifesto e fingerprints de dataset, features e target
+- [x] Implementação de Shadow Mode: predições registradas no SQLite com verificação de concordância/divergência sem alterar o sinal operacional (`final_signal == existing_signal`)
+- [x] Implementação de Adaptive Mode com recomendações (`LONG_BIAS` / `NO_LONG_BIAS`) e fallback automático para a estratégia existente em caso de falha de modelo
+- [x] Soberania irrestrita do Risk Engine: decisões adaptativas submetidas integralmente a todas as travas de risco (posição máxima, saldo, stop loss, cooldown, kill switch)
+- [x] Persistência em tabela SQLite dedicada `adaptive_predictions` com rastreabilidade completa e sem contaminação do dataset de experiências
+- [x] Tabela de métricas acumuladas de predição via `storage.get_adaptive_metrics()`
+- [x] Teste de regressão garantindo que o Paper Trading em `ADAPTIVE_MODE='off'` é 100% equivalente ao comportamento anterior
+- [x] Experimento real com o modelo Ridge da F7.9G (`model_b3e792893e42fd40`): bloqueio comprovado com `MODEL_REJECTED` e ativação segura do fallback
+- [x] Adição de 14 testes unitários e de integração em `tests/test_adaptive.py` (totalizando 210 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
 ---
 
