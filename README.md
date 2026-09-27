@@ -177,18 +177,24 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    powershell -ExecutionPolicy Bypass -File scripts\remove_paper_task.ps1
    ```
 
-9. FinBot Lab — Pesquisa Quantitativa Isolada (FASE 7.7):
+9. FinBot Lab — Pesquisa Quantitativa Isolada (FASE 7.7 / 7.8):
    ```powershell
-   # Executar sweep de parâmetros em modo isolado (preset smoke padrão):
+   # Executar sweep de parâmetros em modo isolado (dataset padrão 500 candles):
    python -m finbot.lab --preset smoke
+
+   # Executar no dataset histórico ampliado de 10.000 candles (~34,7 dias):
+   python -m finbot.lab --dataset data/backtest/binance_BTCUSDT_5m_10000.json --preset smoke
 
    # Executar com quantidade customizada de workers:
    python -m finbot.lab --preset standard --workers 4
 
+   # Baixar novo snapshot paginado com validação geométrica/temporal:
+   python scripts/download_dataset.py --candles 10000 --output data/backtest/binance_BTCUSDT_5m_10000.json
+
    # Visualizar resultados no Dashboard dedicado do Lab (porta 8502, 100% Read-Only):
    streamlit run src/finbot/lab_dashboard.py --server.port=8502 --server.address=127.0.0.1
    ```
-   > **Aviso Metodológico**: Resultados sobre o snapshot de 500 candles destinam-se exclusivamente à validação técnica de engenharia (`EXPLORATORY / ENGINEERING VALIDATION`), sem autoridade para alterar a estratégia operacional.
+   > **Aviso Metodológico**: Resultados sobre datasets históricos destinam-se exclusivamente à validação técnica e screening científico, operando 100% isolados e sem autoridade para alterar a estratégia operacional.
 
 ---
 
@@ -205,6 +211,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 7.5 — Automated Paper Runner** (concluída): Agendamento nativo Windows Task Scheduler (1m) e observabilidade.
 - **FASE 7.6 — Paper Soak Test** (em andamento): Observação contínua de 72 horas para validação de estabilidade.
 - **FASE 7.7 — FinBot Lab** (concluída no notebook): Backtesting paralelo, split Train/Val/Test e laboratório quantitativo.
+- **FASE 7.8 — Auditoria Metodológica + Dataset Ampliado** (concluída no notebook): Validação de split independente e 10.000 candles.
 - **FASE 7B — Dashboard Mobile-Friendly**: Refinamento e ergonomia para telas menores.
 - **FASE 7C — Acesso Remoto Seguro**: Avaliação de acesso seguro read-only.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).

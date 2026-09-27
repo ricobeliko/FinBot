@@ -1,17 +1,18 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.7 — FinBot Lab concluída no Notebook (ambiente isolado de pesquisa quantitativa).
+FASE 7.8 — FinBot Lab: Auditoria Metodológica + Dataset Histórico Maior concluída no Notebook.
 
 ### FinBot Lab (Pesquisa & Otimização Offline)
 - Arquitetura isolada em `src/finbot/lab/` para backtest paralelo e mitigação de overfitting
-- Particionamento cronológico estrito (Train 60%, Validation 20%, Test 20%) sem shuffle e sem vazamento futuro
-- Presets de grid (`smoke`, `standard`, `full` com trava `--confirm-full`)
-- Orquestração paralela determinística via `ProcessPoolExecutor` (`workers=auto|N`)
+- Auditoria metodológica concluída: partições independentes (Train 60%, Val 20%, Test 20%), capital reiniciado a 10.000 USDT, posição zerada no início de cada split, zero transbordo de posições
+- Warm-up interno: primeiros `long_window` candles de cada split atuam como aquecimento emitindo HOLD, prevenindo contaminação de Buy & Hold da partição anterior
+- Ranqueamento estritamente cego: candidatos ordenados unicamente pelo Treino; Validação e Teste atuam exclusivamente como out-of-sample
+- Dataset histórico ampliado: 10.000 candles de 5m (Binance Spot BTC/USDT, ~34.7 dias) baixados via `scripts/download_dataset.py` e congelados em `data/backtest/binance_BTCUSDT_5m_10000.json` (1.7 MB)
+- Dataset original congelado de 500 candles preservado intacto
 - Dashboard analítico separado em `src/finbot/lab_dashboard.py` (porta 8502, 100% Read-Only)
-- 90 testes unitários automatizados determinísticos passando
+- 100 testes unitários automatizados determinísticos passando
 - Zero autoridade operacional: o Lab NÃO altera o bot operacional nem acessa `data/finbot_paper.sqlite3`
-- *Nota Metodológica*: Resultados do dataset congelado de 500 candles são apenas validação de engenharia e não evidência suficiente de robustez da estratégia.
 
 ### PAPER SOAK TEST (PC FORTE)
 Data/hora UTC: 2026-09-27T00:11:58Z
@@ -100,9 +101,10 @@ none
 - D015: Telemetria Enxuta para Paper Soak Test e Rotação de Logs.
 - D016: Repositório GitHub Privado para Sincronização e Backup sem CI/CD.
 - D017: Arquitetura Isolada do FinBot Lab para Backtesting Paralelo e Mitigação de Overfitting.
+- D018: Auditoria Metodológica e Ingestão de Dataset Histórico Ampliado (10.000 candles).
 
 ## Último checkpoint
-FinBot Lab implementado e homologado no Notebook (FASE 7.7): grid search determinístico, paralelismo de CPU via Standard Library, split temporal Train/Val/Test, 90 testes passando, zero autoridade operacional e zero impacto no Paper Soak Test em andamento no PC Forte.
+Auditoria metodológica e ingestão de dataset ampliado (FASE 7.8): 10.000 candles de 5m (Binance Spot) validados, partições independentes confirmadas sem vazamento de dados, 100 testes passando e Soak Test de 72h preservado no PC Forte.
 
 ## Próxima etapa (NEXT)
-Continuidade da observação da janela de 72 horas do Paper Soak Test no PC Forte.
+FASE 7.9 — Pesquisa e screening de parâmetros em escala com walk-forward analysis e dataset ampliado.

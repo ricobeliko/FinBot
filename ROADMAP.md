@@ -120,6 +120,19 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.8 — Auditoria Metodológica + Dataset Histórico Maior (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Auditoria metodológica completa do backtest e partições Train/Val/Test (capital independente, posição zerada, sem vazamento)
+- [x] Validação de warm-up interno e blindagem do ranqueamento exclusivamente pela partição de Treino
+- [x] Criação de script utilitário de download paginado (`scripts/download_dataset.py`) com validação de integridade temporal e geométrica
+- [x] Ingestão de dataset histórico ampliado de 10.000 candles de 5m (~34,7 dias) em `data/backtest/binance_BTCUSDT_5m_10000.json` (1.7 MB)
+- [x] Preservação do dataset congelado original de 500 candles (`binance_BTCUSDT_5m.json`)
+- [x] Adição de 10 testes unitários metodológicos em `tests/test_lab_methodology.py` (totalizando 100 testes no projeto)
+- [x] Confirmação de execução offline sem dependência de rede durante os testes e simulações do Lab
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação

@@ -197,3 +197,16 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Salvaguarda do Preset FULL**: Presets configuráveis (`smoke`, `standard`, `full`), onde `full` requer confirmação explícita (`--confirm-full`) para prevenir sobrecarga de computação no notebook.
   - **Validade do Dataset Conhecida**: Resultados do snapshot de 500 candles são explicitamente rotulados como `EXPLORATORY / ENGINEERING VALIDATION` e não constituem evidência estatística suficiente de robustez final.
 - **Motivo**: Prover infraestrutura quantitativa profissional, reprodutível e determinística mantendo o bot operacional estritamente congelado e protegido.
+
+---
+
+### D018 — Auditoria Metodológica e Ingestão de Dataset Histórico Ampliado (10.000 candles)
+- **Status**: Aceito
+- **Data**: FASE 7.8
+- **Contexto**: Necessidade de auditar rigorosamente o comportamento metodológico do FinBot Lab (isolamento de capital, ausência de transbordo de posições, blindagem do ranking pelo Treino, comportamento de warm-up da SMA) e disponibilizar um dataset histórico substancialmente maior (10.000 candles de 5m da Binance Spot, ~34,7 dias) para viabilizar pesquisas quantitativas robustas sem depender de conexão de rede durante as simulações.
+- **Decisão**:
+  - **Metodologia de Partições Independentes**: Cada fatia cronológica (Train 60%, Validation 20%, Test 20%) é avaliada de forma estritamente autônoma, iniciando com capital novo (`10000.0 USDT`) e posição zerada. Os primeiros `long_window` candles de cada fatia atuam como aquecimento interno (emitindo `HOLD`), prevenindo que métricas de Buy & Hold ou retornos da partição anterior contaminem a partição subsequente.
+  - **Blindagem do Ranqueamento**: O ranking de candidatos é determinado exclusivamente pelo desempenho da partição de Treino (`train.return_pct`, etc.). As métricas de Validação e Teste são puramente diagnósticas (out-of-sample) e não possuem autoridade de seleção.
+  - **Dataset Ampliado e Congelado**: Download reproduzível e paginado via script dedicado (`scripts/download_dataset.py`) de 10.000 candles fechados de 5m (`data/backtest/binance_BTCUSDT_5m_10000.json`, 1.7 MB), preservando o snapshot original de 500 candles (`binance_BTCUSDT_5m.json`). Integridade temporal (5m contínuos, ausência de duplicatas e OHLC válido) auditada e aprovada.
+  - **Bateria Metodológica Automatizada**: Adição de 10 testes determinísticos em `test_lab_methodology.py` (totalizando 100 testes no projeto).
+- **Motivo**: Consolidação de integridade científica e quantitativa prévia a qualquer esforço de força bruta em larga escala, mantendo o bot operacional no PC Forte congelado e protegido.
