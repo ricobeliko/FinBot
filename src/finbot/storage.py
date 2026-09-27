@@ -399,6 +399,54 @@ class PaperStorage:
                 }
             return None
 
+    def record_cycle_run(
+        self,
+        result: str,
+        timestamp_iso: str,
+        is_success: bool = True,
+        message: str = "",
+    ) -> None:
+        """Registra informações do ciclo de execução do Paper Trading para observabilidade."""
+        with self.connection() as conn:
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('last_cycle_timestamp', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (timestamp_iso,),
+            )
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('last_cycle_result', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                (result,),
+            )
+            if message:
+                conn.execute(
+                    "INSERT INTO paper_state (key, value) VALUES ('last_cycle_message', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                    (message,),
+                )
+            if is_success:
+                conn.execute(
+                    "INSERT INTO paper_state (key, value) VALUES ('last_successful_cycle_timestamp', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                    (timestamp_iso,),
+                )
+
+    def get_last_cycle_info(self) -> dict[str, str]:
+        """Retorna dados de observabilidade do último ciclo do Paper Runner."""
+        with self.connection() as conn:
+            cur = conn.execute(
+                "SELECT key, value FROM paper_state WHERE key IN ("
+                "'last_cycle_timestamp', 'last_cycle_result', 'last_successful_cycle_timestamp', 'last_cycle_message'"
+                ");"
+            )
+            rows = {r["key"]: r["value"] for r in cur.fetchall()}
+            return {
+                "timestamp": rows.get("last_cycle_timestamp", ""),
+                "result": rows.get("last_cycle_result", ""),
+                "successful_timestamp": rows.get("last_successful_cycle_timestamp", ""),
+                "message": rows.get("last_cycle_message", ""),
+            }
+
     def reset_db(self, initial_cash: Decimal = Decimal("10000.00")) -> None:
         """Reseta integralmente o ambiente fictício de Paper Trading e o estado do Risk Engine."""
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -415,5 +463,6 @@ class PaperStorage:
             conn.execute(
                 "DELETE FROM paper_state WHERE key IN ("
                 "'last_processed_candle_timestamp', 'kill_switch', 'last_risk_block', "
-                "'last_signal', 'last_signal_reason', 'last_signal_time');"
+                "'last_signal', 'last_signal_reason', 'last_signal_time', "
+                "'last_cycle_timestamp', 'last_cycle_result', 'last_successful_cycle_timestamp', 'last_cycle_message');"
             )

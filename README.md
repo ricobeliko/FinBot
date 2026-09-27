@@ -8,11 +8,11 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 7 — Dashboard Visual Local.
+FASE 7.5 — Automated Paper Runner.
 No real trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 7 (Dashboard Visual Local)**. O FinBot disponibiliza uma interface gráfica interativa via Streamlit (`src/finbot/dashboard.py`) em `127.0.0.1:8501`. O painel é 100% Read-Only e exibe patrimônio estimado, saldo USDT/BTC, posição Spot LONG com P/L não realizado, histórico recente de trades com motivos de saída, gráfico de evolução cumulativa de P/L, status do Risk Engine (Kill Switch, perda diária e cooldown) e status operacional do bot, funcionando de forma resiliente tanto online quanto offline.
+O projeto concluiu a **FASE 7.5 (Automated Paper Runner)**. O FinBot opera ciclos periódicos automáticos de Paper Trading (a cada 1 minuto) através do Windows Task Scheduler, mantendo a execução one-shot e gravando o frescor operacional no SQLite (`data/finbot_paper.sqlite3`). O painel visual em Streamlit (`http://127.0.0.1:8501`) exibe em tempo real o status do runner (`RECENT` vs `STALE`), patrimônio estimado, posições, P/L, trades e métricas do Risk Engine de forma 100% Read-Only e local.
 
 > **Importante**: Paper Trading utiliza capital exclusivamente fictício. O dashboard opera exclusivamente em modo leitura, sem capacidade técnica de enviar ordens reais ou modificar a carteira.
 
@@ -153,9 +153,26 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 7. Executar o Dashboard Visual Local (FASE 7):
    ```powershell
    streamlit run src/finbot/dashboard.py --server.address=127.0.0.1
+   # ou via script:
+   powershell -ExecutionPolicy Bypass -File scripts\run_dashboard.ps1
    ```
    Acesse no navegador: `http://127.0.0.1:8501`
    Painel 100% Read-Only e local (localhost).
+
+8. Automação e Diagnóstico Local (FASE 7.5):
+   ```powershell
+   # Diagnóstico de integridade local (Python, SQLite, Paper Status, Git e Task Scheduler):
+   powershell -ExecutionPolicy Bypass -File scripts\check_finbot.ps1
+
+   # Executar ciclo individual de Paper Trading:
+   powershell -ExecutionPolicy Bypass -File scripts\run_paper.ps1
+
+   # Instalar tarefa agendada no Windows Task Scheduler (ciclos a cada 1m com IgnoreNew):
+   powershell -ExecutionPolicy Bypass -File scripts\install_paper_task.ps1
+
+   # Remover tarefa agendada:
+   powershell -ExecutionPolicy Bypass -File scripts\remove_paper_task.ps1
+   ```
 
 ---
 
@@ -169,10 +186,12 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 5 — Paper Trading** (concluída): Simulação de ordens e carteira virtual com SQLite.
 - **FASE 6 — Risk Engine** (concluída): Limites estritos, stop loss, cooldown e kill switch.
 - **FASE 7A — Dashboard Local Visual** (concluída): Acompanhamento visual via Streamlit (localhost).
+- **FASE 7.5 — Automated Paper Runner** (concluída): Agendamento nativo Windows Task Scheduler (1m) e observabilidade.
+- **NEXT — Paper Soak Test**: Observação contínua de múltiplos dias para validação de estabilidade.
 - **FASE 7B — Dashboard Mobile-Friendly**: Refinamento e ergonomia para telas menores.
 - **FASE 7C — Acesso Remoto Seguro**: Avaliação de acesso seguro read-only.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).
 - **FASE 9 — Estabilidade**: Resiliência e recuperação de conexões.
-- **FASE 10 — Empacotamento/Transferência**: Preparação final para PC de destino.
+- **FASE 10 — Instalação no PC Definitivo**: Preparação e provisionamento final.
 
 Consulte `ROADMAP.md` para o detalhamento completo.

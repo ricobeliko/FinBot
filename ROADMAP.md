@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 7A** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 7.5** está concluída.
 
 ---
 
@@ -75,6 +75,25 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Módulo de métricas desacoplado (`metrics.py`) e 58 testes unitários passando
 - [x] Layout responsivo com base adaptável para desktop e dispositivos móveis
 - [x] Operação 100% Read-Only sem botões ou ações de execução financeira
+
+---
+
+### FASE 7.5 — Automated Paper Runner (Concluída)
+- [x] Scripts operacionais em `scripts/` (`run_paper.ps1`, `run_dashboard.ps1`, `check_finbot.ps1`, `install_paper_task.ps1`, `remove_paper_task.ps1`)
+- [x] Automação periódica a cada 1 minuto via Windows Task Scheduler
+- [x] Proteção anti-sobreposição de instâncias com política `IgnoreNew` e timeout de 5 minutos
+- [x] Observabilidade de ciclo persistida no SQLite (`paper_state`) e cálculo de frescor (`calculate_runner_freshness`)
+- [x] Card e badge de frescor (`RECENT` vs `STALE`) no dashboard e no `--status`
+- [x] Logging estruturado de cada ciclo em `logs/finbot.log`
+- [x] 66 testes unitários automatizados passando
+
+---
+
+### NEXT — Paper Soak Test (Planejada)
+- Observação contínua do Automated Paper Runner por múltiplos dias consecutivos no Windows
+- Monitoramento de reconexões, reinicializações e estabilidade do SQLite (file locks)
+- Avaliação de sinais, preenchimentos simulados, stop loss, cooldown e comportamento do kill switch
+- Validação de estabilidade 24/7 sem vazamento de memória ou instâncias órfãs
 
 ---
 

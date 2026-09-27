@@ -1,25 +1,29 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7 — Dashboard visual local concluída.
+FASE 7.5 — Automated Paper Runner concluída.
 
 ### Implementado
-- dashboard visual local com Streamlit (`src/finbot/dashboard.py`)
-- módulo de métricas desacopladas e puras (`src/finbot/metrics.py`)
-- visualização em tempo real de saldo paper, patrimônio estimado, posição, P/L realizado e não realizado
-- gráfico de evolução cumulativa do P/L realizado por trade fechado
-- histórico recente dos últimos 50 trades com motivos de saída (`exit_reason`)
-- painel de controle e monitoramento do Risk Engine (Kill Switch, Daily Loss, Max Position, Cooldown e último bloqueio)
-- status operacional do bot com último candle fechado e último sinal avaliado
-- layout responsivo adaptável para desktop e smartphones
-- fallback gracioso para funcionamento 100% offline se conexão de internet estiver indisponível
-- 58 testes unitários automatizados passando (`test_metrics.py`, `test_risk.py`, `test_paper.py`, `test_backtest.py`, `test_strategy.py`, `test_exchange.py`)
+- scripts operacionais em `scripts/` (`run_paper.ps1`, `run_dashboard.ps1`, `check_finbot.ps1`, `install_paper_task.ps1`, `remove_paper_task.ps1`)
+- automação periódica do Paper Trading (1m) via Windows Task Scheduler sem loops ou daemon permanente
+- política estrita contra sobreposição de instâncias (`MultipleInstances: IgnoreNew`) e timeout de 5 minutos
+- observabilidade de ciclo persistida no SQLite (`last_cycle_timestamp`, `last_successful_cycle_timestamp`, `last_cycle_result`, `last_cycle_message`)
+- função determinística pura de frescor operacional (`calculate_runner_freshness`: `RECENT` vs `STALE`) no `metrics.py`
+- card e badge de frescor do Paper Runner no dashboard Streamlit e exibição detalhada no CLI (`--status`)
+- logging estruturado e diagnóstico para cada ciclo executado no console e `logs/finbot.log`
+- 66 testes unitários automatizados passando (`test_runner.py`, `test_metrics.py`, `test_risk.py`, `test_paper.py`, `test_backtest.py`, `test_strategy.py`, `test_exchange.py`)
 
 ### Dashboard
 local
 read only
 responsive
 localhost
+
+### Paper Runner
+automated
+windows task scheduler (1m)
+concurrency: ignore_new
+model: one-shot
 
 ### Real trading
 disabled
@@ -45,6 +49,7 @@ none
 - Backtesting.py 0.6.6 adotado (simulação e estudos históricos locais)
 - SQLite adotado (persistência local de paper trading e estados de risco)
 - Streamlit 1.64.0 adotado (dashboard visual local e responsivo)
+- Windows Task Scheduler (orquestração periódica externa one-shot)
 
 ## Estado financeiro
 - nenhuma conta autenticada
@@ -70,9 +75,10 @@ none
 - D011: Arquitetura de Paper Trading com Persistência SQLite Local.
 - D012: Risk Engine Determinístico e Local.
 - D013: Adoção de Streamlit para Dashboard Local e Read-Only.
+- D014: Automação de Ciclos Paper Trading via Windows Task Scheduler.
 
 ## Último checkpoint
-Dashboard visual local homologado (FASE 7): interface Streamlit em localhost:8501, 100% read-only, métricas de patrimônio, P/L, trades recentes, monitoramento de risco e gráficos reais, 58 testes passando e zero acesso remoto.
+Automated Paper Runner homologado (FASE 7.5): orquestração periódica a cada 1m via Windows Task Scheduler com política IgnoreNew, scripts PowerShell em scripts/, observabilidade persistente no SQLite, status RECENT/STALE no dashboard e CLI, 66 testes passando e zero daemon complexo.
 
-## Próxima fase
-FASE 7B / preparação para operação contínua e futura visualização mobile.
+## Próxima etapa (NEXT)
+Paper Soak Test — Período de observação contínua de múltiplos dias para validação de estabilidade, concorrência, reconexões e consistência do SQLite.

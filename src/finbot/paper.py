@@ -15,6 +15,8 @@ import sys
 
 from finbot.config import Config, get_config
 from finbot.exchange import CandleData, close_exchange, create_exchange, fetch_candles, fetch_ticker
+from finbot.logging_setup import setup_logging
+from finbot.metrics import calculate_runner_freshness
 from finbot.risk import RiskDecision, RiskDecisionCode, RiskEngine, is_cooldown_active
 from finbot.storage import PaperAccount, PaperPosition, PaperStorage, PaperTrade
 from finbot.strategy import Signal, evaluate_sma_crossover
@@ -92,6 +94,15 @@ def execute_paper_cycle(
     if now_ms is None:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
+    now_iso = datetime.now(timezone.utc).isoformat()
+    logger = setup_logging(log_level=config.log_level)
+    logger.info(
+        "Iniciando ciclo Paper Trading (%s, %s, %s)...",
+        config.exchange_id,
+        config.symbol,
+        config.paper_timeframe,
+    )
+
     # 1. Obtenção de dados públicos de mercado
     if candles_override is not None and ticker_override is not None:
         raw_candles = candles_override
@@ -119,6 +130,17 @@ def execute_paper_cycle(
     trades_count = storage.get_trades_count()
 
     if len(closed_candles) < required_candles:
+        storage.record_cycle_run(
+            result="INSUFFICIENT_CANDLES",
+            timestamp_iso=now_iso,
+            is_success=True,
+            message=f"Candles fechados insuficientes: {len(closed_candles)}/{required_candles}",
+        )
+        logger.info(
+            "Ciclo Paper Trading finalizado: candles fechados insuficientes (%d/%d).",
+            len(closed_candles),
+            required_candles,
+        )
         return PaperCycleResult(
             exchange=config.exchange_id,
             symbol=config.symbol,
@@ -140,6 +162,16 @@ def execute_paper_cycle(
     # 3. Deduplicação de candle: verifica se já foi processado
     last_processed = storage.get_last_processed_candle_timestamp()
     if last_processed is not None and latest_closed.timestamp <= last_processed:
+        storage.record_cycle_run(
+            result="NO_NEW_CANDLE",
+            timestamp_iso=now_iso,
+            is_success=True,
+            message="No new closed candle.",
+        )
+        logger.info(
+            "Ciclo Paper Trading finalizado: No new closed candle (ts=%s).",
+            latest_closed.timestamp,
+        )
         return PaperCycleResult(
             exchange=config.exchange_id,
             symbol=config.symbol,
@@ -203,6 +235,20 @@ def execute_paper_cycle(
             trade_action = "BUY_INSUFFICIENT_FUNDS"
         else:
             trade_action = f"BLOCKED_{risk_decision.code.value}"
+
+        storage.record_cycle_run(
+            result=trade_action,
+            timestamp_iso=now_iso,
+            is_success=True,
+            message=risk_decision.reason,
+        )
+        logger.info(
+            "Ciclo Paper Trading finalizado: Ação %s (sinal=%s, risco=%s: %s).",
+            trade_action,
+            eval_res.signal.value,
+            risk_decision.code.value,
+            risk_decision.reason,
+        )
 
         return PaperCycleResult(
             exchange=config.exchange_id,
@@ -272,6 +318,20 @@ def execute_paper_cycle(
             else "Paper SELL executado com sucesso."
         )
 
+        storage.record_cycle_run(
+            result=trade_action,
+            timestamp_iso=now_iso,
+            is_success=True,
+            message=msg,
+        )
+        logger.info(
+            "Ciclo Paper Trading finalizado: %s executado a %s USDT. PnL: %s USDT. Motivo: %s.",
+            trade_action,
+            trade_price,
+            realized_pnl,
+            risk_decision.exit_reason,
+        )
+
         return PaperCycleResult(
             exchange=config.exchange_id,
             symbol=config.symbol,
@@ -332,6 +392,19 @@ def execute_paper_cycle(
             candle_timestamp=latest_closed.timestamp,
         )
 
+        storage.record_cycle_run(
+            result="BUY_EXECUTED",
+            timestamp_iso=now_iso,
+            is_success=True,
+            message="Paper BUY executado com sucesso.",
+        )
+        logger.info(
+            "Ciclo Paper Trading finalizado: BUY_EXECUTED a %s USDT (notional=%s USDT, qty=%s BTC).",
+            trade_price,
+            notional,
+            quantity,
+        )
+
         return PaperCycleResult(
             exchange=config.exchange_id,
             symbol=config.symbol,
@@ -351,6 +424,17 @@ def execute_paper_cycle(
 
     # Signal.HOLD ou ação HOLD autorizada sem alteração financeira
     storage.record_candle_processed(latest_closed.timestamp)
+    storage.record_cycle_run(
+        result="HOLD",
+        timestamp_iso=now_iso,
+        is_success=True,
+        message=eval_res.reason,
+    )
+    logger.info(
+        "Ciclo Paper Trading finalizado: HOLD (motivo=%s, candle=%s).",
+        eval_res.reason,
+        latest_closed.formatted_time,
+    )
     return PaperCycleResult(
         exchange=config.exchange_id,
         symbol=config.symbol,
@@ -515,6 +599,19 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
     cooldown_str = f"{config.risk_cooldown_candles} candle(s) (Status: {'ACTIVE' if cooldown_active else 'INACTIVE'})"
     last_risk_block = storage.get_last_risk_block() or "None"
 
+    # Informações do Paper Runner (offline)
+    cycle_info = storage.get_last_cycle_info()
+    last_cycle_str = "None"
+    last_success_str = "None"
+    runner_freshness_str = "NEVER RUN"
+    if cycle_info.get("timestamp"):
+        freshness, elapsed = calculate_runner_freshness(cycle_info["timestamp"])
+        elapsed_str = f" ({int(elapsed)}s atrás)" if elapsed is not None else ""
+        runner_freshness_str = f"{freshness}{elapsed_str}"
+        last_cycle_str = f"{cycle_info['timestamp']} (Result: {cycle_info.get('result', 'UNKNOWN')})"
+    if cycle_info.get("successful_timestamp"):
+        last_success_str = cycle_info["successful_timestamp"]
+
     lines = [
         "==================================================",
         "FinBot Paper Trading — Status",
@@ -531,6 +628,11 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
         f"Total trades: {trades_count}",
         f"Last trade: {last_trade_str}",
         f"Last processed candle: {last_processed_str}",
+        "",
+        "Paper runner:",
+        f"Last cycle: {last_cycle_str}",
+        f"Last successful cycle: {last_success_str}",
+        f"Freshness: {runner_freshness_str}",
         "",
         "Risk:",
         f"Kill switch: {kill_switch_str}",
@@ -590,9 +692,28 @@ def main() -> None:
         return
 
     # Execução de um ciclo one-shot
-    result = execute_paper_cycle(storage, config)
-    report = format_paper_cycle_report(result)
-    print(report)
+    logger = setup_logging(log_level=config.log_level)
+    try:
+        result = execute_paper_cycle(storage, config)
+        report = format_paper_cycle_report(result)
+        print(report)
+    except KeyboardInterrupt:
+        print("\nOperação interrompida pelo usuário.", flush=True)
+        sys.exit(0)
+    except Exception as exc:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            storage.record_cycle_run(
+                result="ERROR",
+                timestamp_iso=now_iso,
+                is_success=False,
+                message=str(exc),
+            )
+        except Exception:
+            pass
+        logger.error("Falha na execução do ciclo Paper Trading: %s", exc)
+        print(f"\nErro no Paper Trading: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

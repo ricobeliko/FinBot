@@ -6,6 +6,7 @@ Zero chamadas de rede ou IO.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -156,3 +157,42 @@ def get_cumulative_pnl_series(trades: list[PaperTrade]) -> list[dict[str, Any]]:
         )
 
     return series
+
+
+def calculate_runner_freshness(
+    last_cycle_iso: str | None,
+    current_time_iso: str | None = None,
+    threshold_seconds: int = 180,
+) -> tuple[str, float | None]:
+    """Calcula o estado de frescor da execução do Paper Runner.
+
+    Retorna:
+    - ("RECENT", elapsed_seconds) se elapsed <= threshold_seconds (padrão 180s = 3min)
+    - ("STALE", elapsed_seconds) se elapsed > threshold_seconds
+    - ("UNKNOWN", None) se last_cycle_iso for nulo, vazio ou inválido
+    """
+    if not last_cycle_iso:
+        return "UNKNOWN", None
+
+    try:
+        last_dt = datetime.fromisoformat(last_cycle_iso)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return "UNKNOWN", None
+
+    try:
+        if current_time_iso:
+            now_dt = datetime.fromisoformat(current_time_iso)
+            if now_dt.tzinfo is None:
+                now_dt = now_dt.replace(tzinfo=timezone.utc)
+        else:
+            now_dt = datetime.now(timezone.utc)
+    except Exception:
+        now_dt = datetime.now(timezone.utc)
+
+    elapsed_seconds = max(0.0, (now_dt - last_dt).total_seconds())
+
+    if elapsed_seconds <= threshold_seconds:
+        return "RECENT", elapsed_seconds
+    return "STALE", elapsed_seconds

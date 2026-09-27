@@ -106,27 +106,57 @@ Com o ambiente ativado:
 
 ```powershell
 streamlit run src/finbot/dashboard.py --server.address=127.0.0.1
+# ou via script operacional:
+powershell -ExecutionPolicy Bypass -File scripts\run_dashboard.ps1
 ```
 
 Inicia o dashboard visual local em `http://127.0.0.1:8501`.
-- **Modo**: 100% Read-Only (visualização de patrimônio, posições, P/L, trades e Risk Engine).
+- **Modo**: 100% Read-Only (visualização de patrimônio, posições, P/L, trades, Risk Engine e frescor do Paper Runner).
 - **Rede**: Estritamente local (`127.0.0.1`), sem exposição para rede externa ou internet.
 - **Resiliência Offline**: Se a internet estiver indisponível, o painel carrega todos os dados locais do SQLite normalmente.
 - **Encerramento**: Pressione `Ctrl + C` no terminal para parar o servidor Streamlit.
 
 ---
 
-## 9. Executar Testes Unitários
+## 9. Scripts Operacionais e Automação (FASE 7.5)
+
+### 9.1 Diagnóstico de Integridade Local
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\check_finbot.ps1
+```
+Valida Python, virtualenv, SQLite, status do Paper Trading, ausência de remotes Git e status da tarefa agendada.
+
+### 9.2 Execução de Ciclo Individual One-Shot
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_paper.ps1
+```
+Invoca `finbot.paper` utilizando o Python da `.venv` sem abrir shell interativo e preservando o código de saída.
+
+### 9.3 Instalar Tarefa Agendada no Windows Task Scheduler
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_paper_task.ps1
+```
+Registra a tarefa `FinBot Paper Runner` para o usuário local, com periodicidade de 1 minuto, política anti-concorrência `IgnoreNew` e timeout de 5 minutos.
+
+### 9.4 Remover Tarefa Agendada do Windows Task Scheduler
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\remove_paper_task.ps1
+```
+Desregistra e remove com segurança a tarefa do agendador do Windows.
+
+---
+
+## 10. Executar Testes Unitários
 
 ```powershell
 python -m unittest discover tests
 ```
 
-Executa toda a bateria de testes unitários determinísticos (58 testes cobrindo Exchange, Strategy, Backtest, Storage, Risk Engine e Metrics sem conexão de internet e sem dados privados).
+Executa toda a bateria de testes unitários determinísticos (66 testes cobrindo Exchange, Strategy, Backtest, Storage, Risk Engine, Metrics e Automated Paper Runner sem conexão de internet e sem dados privados).
 
 ---
 
-## 10. Validar Compilação do Código
+## 11. Validar Compilação do Código
 
 ```powershell
 python -m compileall src tests

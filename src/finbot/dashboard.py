@@ -23,6 +23,7 @@ from finbot.config import Config, get_config
 from finbot.metrics import (
     calculate_paper_equity,
     calculate_performance_metrics,
+    calculate_runner_freshness,
     calculate_unrealized_pnl,
     get_cumulative_pnl_series,
 )
@@ -73,6 +74,7 @@ def run_dashboard() -> None:
     last_closed_ts = storage.get_last_closed_trade_candle_timestamp()
     last_risk_block = storage.get_last_risk_block()
     last_signal_info = storage.get_last_signal()
+    cycle_info = storage.get_last_cycle_info()
 
     # Preço público atual (com fallback caso offline)
     live_price = fetch_live_price_safely(config.symbol, config.exchange_id)
@@ -242,7 +244,20 @@ def run_dashboard() -> None:
             )
 
     with status_col:
-        st.subheader("⚡ Status Operacional do Bot")
+        st.subheader("⚡ Status Operacional & Paper Runner")
+
+        # Avaliação de frescor do Paper Runner
+        last_cycle_ts = cycle_info.get("timestamp")
+        freshness, elapsed = calculate_runner_freshness(last_cycle_ts)
+
+        if freshness == "RECENT":
+            elapsed_desc = f"há {int(elapsed)}s" if elapsed is not None else ""
+            st.success(f"🟢 **Paper Runner: ACTIVE RECENTLY** ({elapsed_desc})")
+        elif freshness == "STALE":
+            mins = int(elapsed / 60) if elapsed is not None else 0
+            st.warning(f"🟠 **Paper Runner: STALE** (há ~{mins} min sem ciclo)")
+        else:
+            st.info("⚪ **Paper Runner: NEVER RUN** (nenhum ciclo registrado)")
 
         candle_str = "Aguardando ciclo..."
         if last_processed_candle:
@@ -250,14 +265,20 @@ def run_dashboard() -> None:
             candle_str = dt_candle.strftime("%Y-%m-%d %H:%M:%S UTC")
 
         sig_val = last_signal_info.get("signal", "Nenhum") if last_signal_info else "Nenhum"
-        sig_reason = last_signal_info.get("reason", "") if last_signal_info else "Aguardando execução de ciclo"
+        sig_reason = last_signal_info.get("reason", "") if last_signal_info else "Aguardando ciclo"
+
+        last_cycle_disp = cycle_info.get("timestamp")[:19].replace("T", " ") + " UTC" if cycle_info.get("timestamp") else "N/A"
+        last_succ_disp = cycle_info.get("successful_timestamp")[:19].replace("T", " ") + " UTC" if cycle_info.get("successful_timestamp") else "N/A"
+        last_res = cycle_info.get("result") or "Nenhum"
 
         st.markdown(
             f"""
-            - **Engine de Execução:** `READY (ONE-SHOT)`
+            - **Modo de Execução:** `ONE-SHOT (Task Scheduler / Manual)`
+            - **Último Ciclo:** `{last_cycle_disp}`
+            - **Último Sucesso:** `{last_succ_disp}`
+            - **Resultado do Ciclo:** `{last_res}`
             - **Último Candle Avaliado:** `{candle_str}`
-            - **Último Sinal Gerado:** `{sig_val}`
-            - **Motivo do Sinal:** `{sig_reason}`
+            - **Último Sinal Gerado:** `{sig_val}` (`{sig_reason}`)
             - **Preço Público Observado:** `{(f'{live_price:,.2f} USDT' if live_price else 'Indisponível (Offline)')}`
             - **Última Atualização Carteira:** `{account.updated_at[:19].replace('T', ' ')} UTC`
             """
