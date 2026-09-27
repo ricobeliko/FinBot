@@ -156,3 +156,15 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Observabilidade Persistente**: Gravação do timestamp do último ciclo, último ciclo bem-sucedido, resultado e mensagem de execução em `paper_state`, viabilizando o monitoramento de frescor operacional (`RECENT` vs `STALE`) no dashboard e CLI.
   - **Recuperação Natural**: O agendador nativo do sistema operacional lida com reinicializações e falhas do processo sem risco de estados corrompidos ou threads zumbis.
 - **Motivo**: Máxima simplicidade arquitetural, confiabilidade operacional nativa do Windows, separação clara entre motor de cálculo financeiro e agendamento temporal, e conformidade com o princípio de adicionar apenas o estritamente necessário.
+
+---
+
+### D015 — Telemetria Enxuta para Paper Soak Test e Rotação de Logs
+- **Status**: Aceito
+- **Data**: FASE 7.6
+- **Contexto**: Preparação para um período de teste de estresse e estabilidade operacional contínua (*Paper Soak Test*) de 72 horas sem supervisão direta no Windows, exigindo observabilidade de falhas, métricas de execução e controle de espaço em disco.
+- **Decisão**:
+  - **Telemetria Enxuta em `paper_state`**: Utilizar a tabela existente de chave-valor do SQLite para rastrear contadores atômicos de ciclos (`total_cycles`, `successful_cycles`, `failed_cycles`, `deduplicated_cycles`), além de `soak_start_timestamp`, `last_error` e `last_error_timestamp`. Nenhuma tabela nova ou framework pesado de métricas foi adicionado.
+  - **Isolamento de Falhas Transitórias**: Falhas de rede, timeouts ou indisponibilidade temporária de exchange incrementam o contador de falhas e registram o erro, mas jamais alteram ou corrompem o saldo fictício, a posição aberta, os trades executados ou o último candle processado. O próximo ciclo agendado recupera a saúde operacional sem intervenção manual.
+  - **Rotação de Arquivos de Log**: Adoção de `RotatingFileHandler` da Standard Library com limite de 5 MB por arquivo e retenção de até 3 backups (`logs/finbot.log`), prevenindo saturação descontrolada de disco ao longo de execuções ininterruptas minuto a minuto.
+- **Motivo**: Observabilidade diagnóstica completa, segurança patrimonial inegociável, isolamento contra falhas de infraestrutura e conformidade estrita com o princípio da menor intervenção necessária.

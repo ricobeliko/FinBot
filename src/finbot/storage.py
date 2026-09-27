@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 import sqlite3
-from typing import Generator
+from typing import Any, Generator
 
 
 @dataclass(frozen=True)
@@ -406,7 +406,7 @@ class PaperStorage:
         is_success: bool = True,
         message: str = "",
     ) -> None:
-        """Registra informações do ciclo de execução do Paper Trading para observabilidade."""
+        """Registra informações do ciclo de execução do Paper Trading para observabilidade do Soak Test."""
         with self.connection() as conn:
             conn.execute(
                 "INSERT INTO paper_state (key, value) VALUES ('last_cycle_timestamp', ?) "
@@ -424,19 +424,59 @@ class PaperStorage:
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
                     (message,),
                 )
+
+            # Inicializa soak_start_timestamp se ainda não existir
+            conn.execute(
+                "INSERT OR IGNORE INTO paper_state (key, value) VALUES ('soak_start_timestamp', ?);",
+                (timestamp_iso,),
+            )
+
+            # Incrementa contador total de ciclos
+            conn.execute(
+                "INSERT INTO paper_state (key, value) VALUES ('total_cycles', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);"
+            )
+
             if is_success:
                 conn.execute(
                     "INSERT INTO paper_state (key, value) VALUES ('last_successful_cycle_timestamp', ?) "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
                     (timestamp_iso,),
                 )
+                conn.execute(
+                    "INSERT INTO paper_state (key, value) VALUES ('successful_cycles', '1') "
+                    "ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);"
+                )
+                if result == "NO_NEW_CANDLE":
+                    conn.execute(
+                        "INSERT INTO paper_state (key, value) VALUES ('deduplicated_cycles', '1') "
+                        "ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);"
+                    )
+            else:
+                conn.execute(
+                    "INSERT INTO paper_state (key, value) VALUES ('failed_cycles', '1') "
+                    "ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT);"
+                )
+                err_msg = message or result
+                conn.execute(
+                    "INSERT INTO paper_state (key, value) VALUES ('last_error', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                    (err_msg,),
+                )
+                conn.execute(
+                    "INSERT INTO paper_state (key, value) VALUES ('last_error_timestamp', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                    (timestamp_iso,),
+                )
 
-    def get_last_cycle_info(self) -> dict[str, str]:
-        """Retorna dados de observabilidade do último ciclo do Paper Runner."""
+    def get_last_cycle_info(self) -> dict[str, Any]:
+        """Retorna dados de observabilidade do último ciclo e telemetria do Soak Test."""
         with self.connection() as conn:
             cur = conn.execute(
                 "SELECT key, value FROM paper_state WHERE key IN ("
-                "'last_cycle_timestamp', 'last_cycle_result', 'last_successful_cycle_timestamp', 'last_cycle_message'"
+                "'last_cycle_timestamp', 'last_cycle_result', 'last_successful_cycle_timestamp', 'last_cycle_message', "
+                "'soak_start_timestamp', 'total_cycles', 'successful_cycles', 'failed_cycles', 'deduplicated_cycles', "
+                "'last_error', 'last_error_timestamp'"
                 ");"
             )
             rows = {r["key"]: r["value"] for r in cur.fetchall()}
@@ -445,6 +485,13 @@ class PaperStorage:
                 "result": rows.get("last_cycle_result", ""),
                 "successful_timestamp": rows.get("last_successful_cycle_timestamp", ""),
                 "message": rows.get("last_cycle_message", ""),
+                "soak_start": rows.get("soak_start_timestamp", ""),
+                "total_cycles": int(rows.get("total_cycles", "0")),
+                "successful_cycles": int(rows.get("successful_cycles", "0")),
+                "failed_cycles": int(rows.get("failed_cycles", "0")),
+                "deduplicated_cycles": int(rows.get("deduplicated_cycles", "0")),
+                "last_error": rows.get("last_error", ""),
+                "last_error_timestamp": rows.get("last_error_timestamp", ""),
             }
 
     def reset_db(self, initial_cash: Decimal = Decimal("10000.00")) -> None:
@@ -464,5 +511,7 @@ class PaperStorage:
                 "DELETE FROM paper_state WHERE key IN ("
                 "'last_processed_candle_timestamp', 'kill_switch', 'last_risk_block', "
                 "'last_signal', 'last_signal_reason', 'last_signal_time', "
-                "'last_cycle_timestamp', 'last_cycle_result', 'last_successful_cycle_timestamp', 'last_cycle_message');"
+                "'last_cycle_timestamp', 'last_cycle_result', 'last_successful_cycle_timestamp', 'last_cycle_message', "
+                "'soak_start_timestamp', 'total_cycles', 'successful_cycles', 'failed_cycles', 'deduplicated_cycles', "
+                "'last_error', 'last_error_timestamp');"
             )

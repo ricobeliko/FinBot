@@ -1,17 +1,28 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.5 — Automated Paper Runner concluída.
+FASE 7.6 — Paper Soak Test em andamento (Preparação & Observabilidade concluídas).
+
+### PAPER SOAK TEST STARTED
+Data/hora UTC: 2026-09-27T00:11:58Z
+Baseline:
+- USDT: 10000.00
+- BTC: 0.00000000
+- Posição: NONE
+- Trades: 0
+- Kill Switch: INACTIVE
+- Runner Freshness: RECENT
+Objetivo inicial: 72 horas
 
 ### Implementado
-- scripts operacionais em `scripts/` (`run_paper.ps1`, `run_dashboard.ps1`, `check_finbot.ps1`, `install_paper_task.ps1`, `remove_paper_task.ps1`)
-- automação periódica do Paper Trading (1m) via Windows Task Scheduler sem loops ou daemon permanente
-- política estrita contra sobreposição de instâncias (`MultipleInstances: IgnoreNew`) e timeout de 5 minutos
-- observabilidade de ciclo persistida no SQLite (`last_cycle_timestamp`, `last_successful_cycle_timestamp`, `last_cycle_result`, `last_cycle_message`)
-- função determinística pura de frescor operacional (`calculate_runner_freshness`: `RECENT` vs `STALE`) no `metrics.py`
-- card e badge de frescor do Paper Runner no dashboard Streamlit e exibição detalhada no CLI (`--status`)
-- logging estruturado e diagnóstico para cada ciclo executado no console e `logs/finbot.log`
-- 66 testes unitários automatizados passando (`test_runner.py`, `test_metrics.py`, `test_risk.py`, `test_paper.py`, `test_backtest.py`, `test_strategy.py`, `test_exchange.py`)
+- telemetria enxuta e atômica persistida em `paper_state` (`soak_start_timestamp`, `total_cycles`, `successful_cycles`, `failed_cycles`, `deduplicated_cycles`, `last_error`, `last_error_timestamp`)
+- isolamento estrito de falhas de rede: erros transitórios registram falha na telemetria sem jamais alterar saldo, posição ou trades
+- CLI estendido com `--soak-status` (e `--status` aprimorado) exibindo métricas do soak test e diagnóstico de erros
+- painel do dashboard estendido com seção de Runner Health (início do soak, contadores e alerta de último erro)
+- rotação automática de logs (`RotatingFileHandler`: 5 MB, 3 backups) via Standard Library em `logs/finbot.log`
+- script de diagnóstico `scripts/check_finbot.ps1` enriquecido com estado detalhado da tarefa agendada do Windows
+- 70 testes unitários automatizados determinísticos passando sem internet
+- tarefa Windows `FinBot Paper Runner` ativa e operando a cada 1 minuto (IgnoreNew)
 
 ### Dashboard
 local
@@ -24,6 +35,7 @@ automated
 windows task scheduler (1m)
 concurrency: ignore_new
 model: one-shot
+soak test: active
 
 ### Real trading
 disabled
@@ -76,9 +88,10 @@ none
 - D012: Risk Engine Determinístico e Local.
 - D013: Adoção de Streamlit para Dashboard Local e Read-Only.
 - D014: Automação de Ciclos Paper Trading via Windows Task Scheduler.
+- D015: Telemetria Enxuta para Paper Soak Test e Rotação de Logs.
 
 ## Último checkpoint
-Automated Paper Runner homologado (FASE 7.5): orquestração periódica a cada 1m via Windows Task Scheduler com política IgnoreNew, scripts PowerShell em scripts/, observabilidade persistente no SQLite, status RECENT/STALE no dashboard e CLI, 66 testes passando e zero daemon complexo.
+Paper Soak Test iniciado e telemetria operacional homologada (FASE 7.6): telemetria atômica em SQLite `paper_state`, rotação de logs (5MB, 3 backups), isolamento de falhas de rede, CLI `--soak-status`, runner health no dashboard, 70 testes passando e tarefa agendada Windows ativa e executando a cada 1m.
 
 ## Próxima etapa (NEXT)
-Paper Soak Test — Período de observação contínua de múltiplos dias para validação de estabilidade, concorrência, reconexões e consistência do SQLite.
+Acompanhamento contínuo da janela de 72 horas do Paper Soak Test antes de qualquer evolução para FASE 7B ou posteriores.

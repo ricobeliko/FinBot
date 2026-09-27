@@ -259,6 +259,15 @@ def run_dashboard() -> None:
         else:
             st.info("⚪ **Paper Runner: NEVER RUN** (nenhum ciclo registrado)")
 
+        # Telemetria do Soak Test
+        total_c = cycle_info.get("total_cycles", 0)
+        succ_c = cycle_info.get("successful_cycles", 0)
+        dedup_c = cycle_info.get("deduplicated_cycles", 0)
+        fail_c = cycle_info.get("failed_cycles", 0)
+        soak_start = cycle_info.get("soak_start")
+        soak_start_disp = soak_start[:19].replace("T", " ") + " UTC" if soak_start else "Aguardando início"
+        last_err = cycle_info.get("last_error")
+
         candle_str = "Aguardando ciclo..."
         if last_processed_candle:
             dt_candle = datetime.fromtimestamp(last_processed_candle / 1000, tz=timezone.utc)
@@ -274,6 +283,8 @@ def run_dashboard() -> None:
         st.markdown(
             f"""
             - **Modo de Execução:** `ONE-SHOT (Task Scheduler / Manual)`
+            - **Início do Soak Test:** `{soak_start_disp}`
+            - **Total de Ciclos:** `{total_c}` (✅ `{succ_c}` ok / ⏭️ `{dedup_c}` dedup / ❌ `{fail_c}` falhas)
             - **Último Ciclo:** `{last_cycle_disp}`
             - **Último Sucesso:** `{last_succ_disp}`
             - **Resultado do Ciclo:** `{last_res}`
@@ -283,6 +294,10 @@ def run_dashboard() -> None:
             - **Última Atualização Carteira:** `{account.updated_at[:19].replace('T', ' ')} UTC`
             """
         )
+
+        if last_err:
+            st.error(f"⚠️ **Último Erro:** {last_err}")
+
 
     st.markdown("---")
 

@@ -81,6 +81,8 @@ python -m finbot.paper
 Consulta o saldo, posições, histórico e métricas de risco sem acessar a internet (offline):
 ```powershell
 python -m finbot.paper --status
+# ou com foco em telemetria do soak test:
+python -m finbot.paper --soak-status
 ```
 
 Ativa o Kill Switch localmente (bloqueia novos BUYs mantendo permissão de saída):
@@ -93,7 +95,7 @@ Desativa o Kill Switch localmente (restaura operação normal):
 python -m finbot.paper --kill-switch off
 ```
 
-Restaura o saldo inicial fictício (10000.00 USDT), zera as operações simuladas e limpa o estado de risco:
+Restaura o saldo inicial fictício (10000.00 USDT), zera as operações simuladas e limpa o estado de risco e telemetria:
 ```powershell
 python -m finbot.paper --reset --yes
 ```
@@ -111,20 +113,20 @@ powershell -ExecutionPolicy Bypass -File scripts\run_dashboard.ps1
 ```
 
 Inicia o dashboard visual local em `http://127.0.0.1:8501`.
-- **Modo**: 100% Read-Only (visualização de patrimônio, posições, P/L, trades, Risk Engine e frescor do Paper Runner).
+- **Modo**: 100% Read-Only (visualização de patrimônio, posições, P/L, trades, Risk Engine, Runner Health e frescor do Paper Runner).
 - **Rede**: Estritamente local (`127.0.0.1`), sem exposição para rede externa ou internet.
 - **Resiliência Offline**: Se a internet estiver indisponível, o painel carrega todos os dados locais do SQLite normalmente.
 - **Encerramento**: Pressione `Ctrl + C` no terminal para parar o servidor Streamlit.
 
 ---
 
-## 9. Scripts Operacionais e Automação (FASE 7.5)
+## 9. Scripts Operacionais e Automação (FASE 7.5 / 7.6)
 
 ### 9.1 Diagnóstico de Integridade Local
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\check_finbot.ps1
 ```
-Valida Python, virtualenv, SQLite, status do Paper Trading, ausência de remotes Git e status da tarefa agendada.
+Valida Python, virtualenv, SQLite, status do Paper Trading, ausência de remotes Git e status detalhado da tarefa agendada no Windows.
 
 ### 9.2 Execução de Ciclo Individual One-Shot
 ```powershell
@@ -152,7 +154,7 @@ Desregistra e remove com segurança a tarefa do agendador do Windows.
 python -m unittest discover tests
 ```
 
-Executa toda a bateria de testes unitários determinísticos (66 testes cobrindo Exchange, Strategy, Backtest, Storage, Risk Engine, Metrics e Automated Paper Runner sem conexão de internet e sem dados privados).
+Executa toda a bateria de testes unitários determinísticos (70 testes cobrindo Exchange, Strategy, Backtest, Storage, Risk Engine, Metrics, Automated Paper Runner, isolamento de rede e rotação de logs sem conexão de internet e sem dados privados).
 
 ---
 

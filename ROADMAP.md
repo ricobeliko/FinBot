@@ -2,7 +2,7 @@
 
 Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase deve estar completamente testada, validada e funcional antes de a próxima iniciar.
 
-> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 7.5** está concluída.
+> **Aviso Importante**: Não implementar nenhuma fase antecipadamente. Atualmente a **FASE 7.6 (Paper Soak Test)** está em andamento (IN PROGRESS).
 
 ---
 
@@ -89,11 +89,20 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### NEXT — Paper Soak Test (Planejada)
-- Observação contínua do Automated Paper Runner por múltiplos dias consecutivos no Windows
-- Monitoramento de reconexões, reinicializações e estabilidade do SQLite (file locks)
-- Avaliação de sinais, preenchimentos simulados, stop loss, cooldown e comportamento do kill switch
-- Validação de estabilidade 24/7 sem vazamento de memória ou instâncias órfãs
+### FASE 7.6 — Paper Soak Test (Em Andamento / IN PROGRESS)
+- **Status**: IN PROGRESS
+- **Initial observation window**: 72 hours
+- [x] Telemetria enxuta e atômica via `paper_state` (ciclos, sucessos, deduplicações, falhas e último erro)
+- [x] Isolamento estrito de falhas de rede e recuperação automática no ciclo subsequente
+- [x] Comando CLI `--soak-status` e status enriquecido
+- [x] Seção de Runner Health no dashboard Streamlit
+- [x] Rotação de logs com `RotatingFileHandler` (5 MB, 3 backups)
+- [x] Scripts operacionais e checagem de tarefa agendada
+- [x] 70 testes unitários determinísticos passando sem internet
+- [ ] Observação contínua do Automated Paper Runner por 72 horas consecutivas no Windows
+- [ ] Monitoramento de reconexões, reinicializações e estabilidade do SQLite (file locks)
+- [ ] Avaliação de sinais, preenchimentos simulados, stop loss, cooldown e comportamento do kill switch
+- [ ] Validação de estabilidade 24/7 sem vazamento de memória ou instâncias órfãs
 
 ---
 

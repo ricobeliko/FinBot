@@ -599,7 +599,7 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
     cooldown_str = f"{config.risk_cooldown_candles} candle(s) (Status: {'ACTIVE' if cooldown_active else 'INACTIVE'})"
     last_risk_block = storage.get_last_risk_block() or "None"
 
-    # Informações do Paper Runner (offline)
+    # Informações do Paper Runner / Soak Test (offline)
     cycle_info = storage.get_last_cycle_info()
     last_cycle_str = "None"
     last_success_str = "None"
@@ -612,9 +612,16 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
     if cycle_info.get("successful_timestamp"):
         last_success_str = cycle_info["successful_timestamp"]
 
+    soak_start_str = cycle_info.get("soak_start") or "N/A"
+    total_c = cycle_info.get("total_cycles", 0)
+    succ_c = cycle_info.get("successful_cycles", 0)
+    dedup_c = cycle_info.get("deduplicated_cycles", 0)
+    fail_c = cycle_info.get("failed_cycles", 0)
+    last_err = cycle_info.get("last_error") or "None"
+
     lines = [
         "==================================================",
-        "FinBot Paper Trading — Status",
+        "FinBot Paper Trading — Status & Soak Telemetry",
         "==================================================",
         "",
         "Paper account:",
@@ -629,10 +636,13 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
         f"Last trade: {last_trade_str}",
         f"Last processed candle: {last_processed_str}",
         "",
-        "Paper runner:",
+        "Paper runner (Soak Test):",
+        f"Freshness: {runner_freshness_str}",
+        f"Soak started: {soak_start_str}",
+        f"Cycles: {total_c} (Success: {succ_c}, Deduplicated: {dedup_c}, Failed: {fail_c})",
         f"Last cycle: {last_cycle_str}",
         f"Last successful cycle: {last_success_str}",
-        f"Freshness: {runner_freshness_str}",
+        f"Last error: {last_err}",
         "",
         "Risk:",
         f"Kill switch: {kill_switch_str}",
@@ -652,8 +662,9 @@ def format_paper_status_report(storage: PaperStorage, config: Config) -> str:
 
 def main() -> None:
     """Ponto de entrada para execução de Paper Trading via CLI."""
-    parser = argparse.ArgumentParser(description="FinBot Paper Trading Engine (FASE 6)")
-    parser.add_argument("--status", action="store_true", help="Exibe status atual da conta e histórico paper (offline)")
+    parser = argparse.ArgumentParser(description="FinBot Paper Trading Engine (FASE 7.6)")
+    parser.add_argument("--status", action="store_true", help="Exibe status atual da conta, histórico e telemetria (offline)")
+    parser.add_argument("--soak-status", action="store_true", help="Exibe relatório detalhado do Soak Test e saúde do runner (offline)")
     parser.add_argument("--kill-switch", choices=["on", "off"], help="Ativa ('on') ou desativa ('off') o Kill Switch localmente no SQLite")
     parser.add_argument("--reset", action="store_true", help="Reseta o ambiente fictício de paper trading e estados de risco")
     parser.add_argument("--yes", action="store_true", help="Confirmação direta para reset sem prompt interativo")
@@ -674,7 +685,7 @@ def main() -> None:
             print("Operação normal de Paper Trading restaurada.")
         return
 
-    if args.status:
+    if args.status or args.soak_status:
         report = format_paper_status_report(storage, config)
         print(report)
         return

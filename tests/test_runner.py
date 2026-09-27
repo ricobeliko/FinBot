@@ -7,12 +7,14 @@ persistência entre instâncias, deduplicação e integridade do estado financei
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import tempfile
 import unittest
 
 from finbot.config import Config
 from finbot.exchange import CandleData
+from finbot.logging_setup import setup_logging
 from finbot.metrics import calculate_runner_freshness
 from finbot.paper import execute_paper_cycle
 from finbot.storage import PaperAccount, PaperPosition, PaperStorage
@@ -209,6 +211,109 @@ class TestAutomatedPaperRunner(unittest.TestCase):
         self.assertEqual(info["timestamp"], "")
         self.assertEqual(info["result"], "")
         self.assertEqual(info["successful_timestamp"], "")
+
+    def test_09_soak_telemetry_counters(self) -> None:
+        """9. Telemetria do Soak Test incrementa total, sucessos, deduplicados e falhas."""
+        now = datetime.now(timezone.utc)
+        t1 = now.isoformat()
+        t2 = (now + timedelta(minutes=1)).isoformat()
+        t3 = (now + timedelta(minutes=2)).isoformat()
+        t4 = (now + timedelta(minutes=3)).isoformat()
+
+        # Ciclo 1: Sucesso regular (HOLD)
+        self.storage.record_cycle_run(result="HOLD", timestamp_iso=t1, is_success=True)
+        # Ciclo 2: Deduplicado (NO_NEW_CANDLE)
+        self.storage.record_cycle_run(result="NO_NEW_CANDLE", timestamp_iso=t2, is_success=True)
+        # Ciclo 3: Falha de conexão
+        self.storage.record_cycle_run(result="ERROR", timestamp_iso=t3, is_success=False, message="Timeout na Binance")
+        # Ciclo 4: Sucesso após recuperação
+        self.storage.record_cycle_run(result="BUY_EXECUTED", timestamp_iso=t4, is_success=True)
+
+        info = self.storage.get_last_cycle_info()
+        self.assertEqual(info["total_cycles"], 4)
+        self.assertEqual(info["successful_cycles"], 3)
+        self.assertEqual(info["deduplicated_cycles"], 1)
+        self.assertEqual(info["failed_cycles"], 1)
+        self.assertEqual(info["last_error"], "Timeout na Binance")
+        self.assertEqual(info["last_error_timestamp"], t3)
+        self.assertEqual(info["successful_timestamp"], t4)
+        self.assertEqual(info["soak_start"], t1)
+
+    def test_10_network_error_preserves_financial_state(self) -> None:
+        """10. Erro de rede ou indisponibilidade da exchange não corrompe saldo, posições ou trades."""
+        initial_account = self.storage.get_account()
+        initial_position = self.storage.get_position()
+        initial_trades = self.storage.get_trades_count()
+        last_candle_ts = self.storage.get_last_processed_candle_timestamp()
+
+        # Simula registro de falha de rede
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self.storage.record_cycle_run(
+            result="ERROR",
+            timestamp_iso=now_iso,
+            is_success=False,
+            message="Exchange network connection lost",
+        )
+
+        # Estado financeiro deve permanecer estritamente idêntico
+        post_account = self.storage.get_account()
+        post_position = self.storage.get_position()
+        post_trades = self.storage.get_trades_count()
+        post_candle_ts = self.storage.get_last_processed_candle_timestamp()
+
+        self.assertEqual(post_account.usdt_balance, initial_account.usdt_balance)
+        self.assertEqual(post_account.btc_balance, initial_account.btc_balance)
+        self.assertEqual(post_position.side, initial_position.side)
+        self.assertEqual(post_trades, initial_trades)
+        self.assertEqual(post_candle_ts, last_candle_ts)
+
+        info = self.storage.get_last_cycle_info()
+        self.assertEqual(info["failed_cycles"], 1)
+        self.assertEqual(info["last_error"], "Exchange network connection lost")
+
+    def test_11_recovery_after_network_error(self) -> None:
+        """11. Ciclo bem-sucedido após falha de rede restabelece frescor RECENT e acumula telemetria."""
+        now = datetime.now(timezone.utc)
+        error_ts = (now - timedelta(minutes=5)).isoformat()
+        self.storage.record_cycle_run(
+            result="ERROR",
+            timestamp_iso=error_ts,
+            is_success=False,
+            message="DNS resolution failed",
+        )
+
+        info_err = self.storage.get_last_cycle_info()
+        self.assertEqual(info_err["failed_cycles"], 1)
+        self.assertEqual(info_err["successful_cycles"], 0)
+
+        # Rede recuperada: ciclo bem sucedido
+        success_ts = now.isoformat()
+        self.storage.record_cycle_run(
+            result="HOLD",
+            timestamp_iso=success_ts,
+            is_success=True,
+            message="Estratégia executada",
+        )
+
+        info_succ = self.storage.get_last_cycle_info()
+        self.assertEqual(info_succ["total_cycles"], 2)
+        self.assertEqual(info_succ["successful_cycles"], 1)
+        self.assertEqual(info_succ["failed_cycles"], 1)
+        self.assertEqual(info_succ["successful_timestamp"], success_ts)
+
+        freshness, elapsed = calculate_runner_freshness(info_succ["timestamp"], current_time_iso=success_ts)
+        self.assertEqual(freshness, "RECENT")
+        self.assertAlmostEqual(elapsed, 0.0, delta=1.0)
+
+    def test_12_rotating_file_handler_configuration(self) -> None:
+        """12. O logger configura RotatingFileHandler com limite de 5MB e 3 backups."""
+        test_log_path = Path(self.tmp_dir.name) / "test_rotating.log"
+        logger = setup_logging(log_level="INFO", log_file=str(test_log_path))
+        rotating_handlers = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
+        self.assertTrue(len(rotating_handlers) >= 1)
+        handler = rotating_handlers[0]
+        self.assertEqual(handler.maxBytes, 5 * 1024 * 1024)
+        self.assertEqual(handler.backupCount, 3)
 
 
 if __name__ == "__main__":

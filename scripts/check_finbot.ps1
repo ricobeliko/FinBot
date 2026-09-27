@@ -6,7 +6,7 @@ $PythonExe = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $DbPath = Join-Path $ProjectRoot "data\finbot_paper.sqlite3"
 
 Write-Host "=================================================="
-Write-Host "FinBot - Health Check Local"
+Write-Host "FinBot - Health Check Local & Soak Telemetry"
 Write-Host "=================================================="
 
 # 1. Verificacao do interpretador Python e virtualenv
@@ -22,15 +22,15 @@ if (Test-Path $PythonExe) {
 if (Test-Path $DbPath) {
     $FileItem = Get-Item $DbPath
     $Size = $FileItem.Length
-    Write-Host "[OK] SQLite: Base encontrada ($Size bytes)"
+    Write-Host "[OK] SQLite: Base encontrada ($Size bytes) em $DbPath"
 } else {
     Write-Host "[INFO] SQLite: Base ainda nao criada (sera criada no primeiro ciclo)"
 }
 
-# 3. Execucao do Paper Status (100% offline)
+# 3. Execucao do Paper Status & Soak Telemetry (100% offline)
 Push-Location $ProjectRoot
 try {
-    Write-Host "`nStatus Operacional (Paper Trading e Risk Engine):"
+    Write-Host "`nStatus Operacional (Paper Trading, Risk Engine e Soak Telemetry):"
     & $PythonExe -m finbot.paper --status
     if ($LASTEXITCODE -eq 0) {
         Write-Host "`n[OK] Paper Status consultado com sucesso."
@@ -60,7 +60,13 @@ finally {
 try {
     $Task = Get-ScheduledTask -TaskName "FinBot Paper Runner" -ErrorAction SilentlyContinue
     if ($Task) {
-        Write-Host "[OK] Task Scheduler: Tarefa 'FinBot Paper Runner' registrada (Estado: $($Task.State))"
+        $TaskInfo = Get-ScheduledTaskInfo -TaskName "FinBot Paper Runner" -ErrorAction SilentlyContinue
+        Write-Host "[OK] Task Scheduler: Tarefa 'FinBot Paper Runner' (Estado: $($Task.State))"
+        if ($TaskInfo) {
+            Write-Host "     - Ultima Execucao: $($TaskInfo.LastRunTime)"
+            Write-Host "     - Proxima Execucao: $($TaskInfo.NextRunTime)"
+            Write-Host "     - Ultimo Resultado Task: $($TaskInfo.LastTaskResult)"
+        }
     } else {
         Write-Host "[INFO] Task Scheduler: Nenhuma tarefa 'FinBot Paper Runner' registrada no momento"
     }
@@ -68,4 +74,5 @@ try {
     Write-Host "[INFO] Task Scheduler: Nao foi possivel consultar tarefas agendadas"
 }
 
+Write-Host "`n[OK] Real Trading: DISABLED"
 Write-Host "=================================================="

@@ -8,11 +8,11 @@ Bot local para estudo, validação e automação de estratégias de negociação
 
 ```text
 STATUS ATUAL:
-FASE 7.5 — Automated Paper Runner.
+FASE 7.6 — Paper Soak Test (IN PROGRESS).
 No real trading functionality exists.
 ```
 
-O projeto concluiu a **FASE 7.5 (Automated Paper Runner)**. O FinBot opera ciclos periódicos automáticos de Paper Trading (a cada 1 minuto) através do Windows Task Scheduler, mantendo a execução one-shot e gravando o frescor operacional no SQLite (`data/finbot_paper.sqlite3`). O painel visual em Streamlit (`http://127.0.0.1:8501`) exibe em tempo real o status do runner (`RECENT` vs `STALE`), patrimônio estimado, posições, P/L, trades e métricas do Risk Engine de forma 100% Read-Only e local.
+O projeto está na **FASE 7.6 (Paper Soak Test)**. O FinBot opera ciclos periódicos automáticos de Paper Trading (a cada 1 minuto) através do Windows Task Scheduler com execução one-shot, telemetria atômica no SQLite (`data/finbot_paper.sqlite3`), rotação de logs e isolamento contra falhas de rede. O painel visual em Streamlit (`http://127.0.0.1:8501`) e os comandos CLI (`--status` e `--soak-status`) exibem a saúde do runner (`RECENT` vs `STALE`), ciclos de sucesso/falha, patrimônio estimado, posições, P/L e métricas de risco de forma 100% Read-Only e local.
 
 > **Importante**: Paper Trading utiliza capital exclusivamente fictício. O dashboard opera exclusivamente em modo leitura, sem capacidade técnica de enviar ordens reais ou modificar a carteira.
 
@@ -142,6 +142,8 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    Consultar o status da conta, histórico e métricas de risco (offline):
    ```powershell
    python -m finbot.paper --status
+   # ou com foco na telemetria do soak test:
+   python -m finbot.paper --soak-status
    ```
 
    Ativar ou desativar o Kill Switch de emergência (offline):
@@ -159,7 +161,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    Acesse no navegador: `http://127.0.0.1:8501`
    Painel 100% Read-Only e local (localhost).
 
-8. Automação e Diagnóstico Local (FASE 7.5):
+8. Automação e Diagnóstico Local (FASE 7.5 / 7.6):
    ```powershell
    # Diagnóstico de integridade local (Python, SQLite, Paper Status, Git e Task Scheduler):
    powershell -ExecutionPolicy Bypass -File scripts\check_finbot.ps1
@@ -187,7 +189,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 6 — Risk Engine** (concluída): Limites estritos, stop loss, cooldown e kill switch.
 - **FASE 7A — Dashboard Local Visual** (concluída): Acompanhamento visual via Streamlit (localhost).
 - **FASE 7.5 — Automated Paper Runner** (concluída): Agendamento nativo Windows Task Scheduler (1m) e observabilidade.
-- **NEXT — Paper Soak Test**: Observação contínua de múltiplos dias para validação de estabilidade.
+- **FASE 7.6 — Paper Soak Test** (em andamento): Observação contínua de 72 horas para validação de estabilidade.
 - **FASE 7B — Dashboard Mobile-Friendly**: Refinamento e ergonomia para telas menores.
 - **FASE 7C — Acesso Remoto Seguro**: Avaliação de acesso seguro read-only.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).
