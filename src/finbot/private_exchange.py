@@ -22,6 +22,12 @@ from typing import Any
 import ccxt
 
 from finbot.config import Config
+from finbot.credentials import (
+    BinanceCredentials,
+    CredentialProvider,
+    CredentialsMissingError as _BaseCredentialsMissingError,
+    WindowsCredentialProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +40,7 @@ class PrivateExchangeError(Exception):
     """Exceção base para erros na integração privada com a exchange."""
 
 
-class CredentialsMissingError(PrivateExchangeError):
+class CredentialsMissingError(_BaseCredentialsMissingError, PrivateExchangeError):
     """Lançada quando a API Key ou o API Secret estão ausentes ou vazios."""
 
 
@@ -121,9 +127,15 @@ class BinancePrivateExchange:
     """Cliente isolado para operações privadas (READ-ONLY) na Binance via CCXT.
 
     Todas as chamadas operam sob princípio Fail-Closed e mascaramento estrito de secrets.
+    As credenciais são obtidas exclusivamente via CredentialProvider (Windows Credential Manager).
     """
 
-    def __init__(self, config: Config, client: ccxt.Exchange | Any | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        credential_provider: CredentialProvider | None = None,
+        client: ccxt.Exchange | Any | None = None,
+    ) -> None:
         # 1. Barreira contra modo paper / modos não live
         if config.trading_mode != "live":
             raise InvalidConfigurationError(
@@ -131,18 +143,36 @@ class BinancePrivateExchange:
                 "Requer explicitamente trading_mode='live'."
             )
 
-        # 2. Validação estrita de credenciais (Fail-Closed)
-        api_key = config.binance_api_key.strip() if config.binance_api_key else ""
-        api_secret = config.binance_api_secret.strip() if config.binance_api_secret else ""
+        # 2. Obtenção segura de credenciais exclusivamente via CredentialProvider (Fail-Closed)
+        if credential_provider is None:
+            credential_provider = WindowsCredentialProvider()
 
-        if not api_key or not api_secret:
+        self._credential_provider = credential_provider
+
+        try:
+            creds = self._credential_provider.get_binance_credentials()
+        except _BaseCredentialsMissingError as exc:
+            logger.error("Credential provider: %s", self._credential_provider.get_provider_name())
+            logger.error("Credential status: MISSING")
+            raise CredentialsMissingError(str(exc)) from None
+        except Exception as exc:
+            logger.error("Credential provider: %s", self._credential_provider.get_provider_name())
+            logger.error("Credential status: MISSING (erro: %s)", exc)
+            raise CredentialsMissingError(f"Falha ao obter credenciais da Binance: {exc}") from None
+
+        if not creds or not creds.api_key.strip() or not creds.api_secret.strip():
+            logger.error("Credential provider: %s", self._credential_provider.get_provider_name())
+            logger.error("Credential status: MISSING (credenciais vazias)")
             raise CredentialsMissingError(
-                "Credenciais da Binance (API Key e/ou API Secret) não configuradas ou vazias."
+                f"Credenciais da Binance não configuradas ou vazias no {self._credential_provider.get_provider_name()}."
             )
 
-        self._api_key = api_key
-        self._api_secret = api_secret
+        self._api_key = creds.api_key.strip()
+        self._api_secret = creds.api_secret.strip()
         self.config = config
+
+        logger.info("Credential provider: %s", self._credential_provider.get_provider_name())
+        logger.info("Credential status: PRESENT")
 
         # 3. Inicialização do CCXT (ou injeção de mock)
         if client is not None:
@@ -162,9 +192,14 @@ class BinancePrivateExchange:
                 sanitized_msg = self._sanitize(str(exc))
                 raise PrivateExchangeError(f"Falha ao instanciar CCXT Binance: {sanitized_msg}") from None
 
+    @property
+    def credential_provider(self) -> CredentialProvider:
+        """Retorna o provedor de credenciais associado."""
+        return self._credential_provider
+
     def __repr__(self) -> str:
         """Representação segura que NUNCA expõe chaves ou segredos."""
-        return f"BinancePrivateExchange(mode={self.config.trading_mode}, authenticated=True)"
+        return f"BinancePrivateExchange(mode={self.config.trading_mode}, provider={self._credential_provider.get_provider_name()}, authenticated=True)"
 
     def __str__(self) -> str:
         return self.__repr__()

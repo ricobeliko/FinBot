@@ -470,6 +470,36 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Erros de rede, DNS e timeouts levantam `NetworkError`.
     - Respostas malformadas levantam `PrivateExchangeError`.
     - Nenhum erro produz fallback silencioso para simulação ou operação real.
-  - **Recomendação de Permissões Mínimas**:
-    - Documentado que as API keys para a Fase 8.1 devem ter **exclusivamente permissão de LEITURA**. Permissões de Spot Trading e Saques (Withdrawals) devem permanecer desabilitadas na Binance.
 - **Motivo**: Construir a base de comunicação privada com a exchange sob padrões institucionais de segurança e contenção de risco, viabilizando reconciliação e auditoria de saldos antes de qualquer passo em direção ao envio de ordens.
+
+---
+
+### D029 — Windows Credential Manager for Binance Secrets
+- **Status**: Aceito
+- **Data**: FASE 8.2A
+- **Contexto**: Eliminar qualquer armazenamento de credenciais reais da Binance em arquivos de texto plano (`.env`, `.json`, `.yaml`), variáveis de ambiente de processo ou bancos de dados locais. No ambiente operacional de produção (PC Forte), as credenciais devem ser gerenciadas por um cofre criptográfico nativo do sistema operacional com suporte a controle de acesso por usuário e criptografia de chave de máquina (DPAPI / LSASS).
+- **Decisão**:
+  - **Adoção do Windows Credential Manager**:
+    - As credenciais de produção da Binance Spot (`api_key` e `api_secret`) passam a ser armazenadas exclusivamente no Windows Credential Manager sob o target canônico `FinBot/Binance/Production`.
+    - Implementação nativa e enxuta via `ctypes` interagindo com `Advapi32.dll` (`CredReadW`, `CredWriteW`, `CredDeleteW`, `CredFree`), sem introduzir dependências externas pesadas ou serviços em nuvem.
+  - **Abstração por Provedor (`CredentialProvider`)**:
+    - Criação da interface abstrata `CredentialProvider` em `src/finbot/credentials.py`.
+    - Implementação oficial para produção: `WindowsCredentialProvider`.
+    - Implementação oficial para testes automatizados: `FakeCredentialProvider`, garantindo que os testes unitários sejam determinísticos e nunca acessem o cofre real do Windows nem dependam de conectividade externa.
+  - **Isolamento de Ambientes**:
+    - **PC Forte (Execução de Produção / Paper Soak 24/7)**: Único repositório autorizado para armazenamento da credencial real no Windows Credential Manager.
+    - **Notebook de Desenvolvimento / Monitoramento**: Não possui as credenciais cadastradas e opera sob `PRIVATE_READ_TEST = NOT_RUN_NO_CREDENTIALS`, prevenindo contaminação acidental ou versionamento de chaves.
+  - **Rejeição Estrita de Credenciais em Variáveis de Ambiente**:
+    - `get_config()` em `src/finbot/config.py` não carrega chaves privadas de variáveis de ambiente.
+    - Proibição absoluta de armazenamento de segredos em arquivos `.env`, `.json`, `.yaml`, `.sqlite3`, `.csv`, logs ou código-fonte.
+  - **Proteção Ativa em Memória e Exceções**:
+    - Dataclass `BinanceCredentials` implementa `repr=False` e representação customizada `BinanceCredentials(api_key=[PROTECTED], api_secret=[PROTECTED])`.
+    - Higienização contínua de logs e mensagens de erro via `sanitize_secret_text`.
+    - `BinancePrivateExchange` obtém credenciais em memória estritamente no momento da instanciação.
+  - **Preservação Integral do Modo Paper**:
+    - O modo `paper` (`TRADING_MODE=paper`, default obrigatório) não consulta o Windows Credential Manager nem exige chaves privadas para executar, mantendo os ciclos de Paper Trading completamente desacoplados.
+  - **Princípio Fail-Closed**:
+    - Se o target não for encontrado no Windows Credential Manager ou se as credenciais forem vazias, o FinBot levanta `CredentialsMissingError` imediatamente, impedindo chamadas de rede, criação de ordens ou fallbacks silenciosos.
+  - **CLI Administrativa Segura**:
+    - Comandos interativos auditáveis: `python -m finbot.credentials setup` (com entrada de segredo oculta via `getpass`), `status` (sem exibição de valores) e `remove` (com confirmação explícita obrigatória).
+- **Motivo**: Atender aos mais rigorosos padrões institucionais de segurança para algoritmos de negociação, eliminando riscos de exfiltração acidental de chaves via Git, cópias de arquivos ou despejos de memória e logs.

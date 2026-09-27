@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import ccxt
 
 from finbot.config import Config, get_config
+from finbot.credentials import FakeCredentialProvider, WindowsCredentialProvider
 from finbot.private_exchange import (
     AccountSnapshot,
     AccountStatus,
@@ -51,13 +52,10 @@ class TestPrivateExchangeConfigAndSecurity(unittest.TestCase):
 
     def test_paper_mode_blocks_private_exchange_instantiation(self) -> None:
         """3. O modo paper impede categoricamente a instanciação do cliente privado."""
-        cfg_paper = Config(
-            trading_mode="paper",
-            binance_api_key="dummy_key_12345",
-            binance_api_secret="dummy_secret_67890",
-        )
+        cfg_paper = Config(trading_mode="paper")
+        fake_prov = FakeCredentialProvider("dummy_key", "dummy_secret")
         with self.assertRaises(InvalidConfigurationError) as ctx:
-            BinancePrivateExchange(cfg_paper)
+            BinancePrivateExchange(cfg_paper, credential_provider=fake_prov)
         self.assertIn("paper", str(ctx.exception))
 
     def test_missing_credentials_fails_closed(self) -> None:
@@ -67,16 +65,27 @@ class TestPrivateExchangeConfigAndSecurity(unittest.TestCase):
             ("my_key", ""),
             ("", "my_secret"),
             ("   ", "   "),
+            (None, None),
         ]
         for key, secret in scenarios:
             with self.subTest(key=key, secret=secret):
-                cfg_live = Config(
-                    trading_mode="live",
-                    binance_api_key=key,
-                    binance_api_secret=secret,
-                )
+                cfg_live = Config(trading_mode="live")
+                provider = FakeCredentialProvider(api_key=key, api_secret=secret)
                 with self.assertRaises(CredentialsMissingError):
-                    BinancePrivateExchange(cfg_live)
+                    BinancePrivateExchange(cfg_live, credential_provider=provider)
+
+    def test_default_provider_is_windows_and_fails_closed_when_empty(self) -> None:
+        """4b. Quando nenhum provider é passado, usa WindowsCredentialProvider e falha se vazio."""
+        cfg_live = Config(trading_mode="live")
+        mock_ccxt = MagicMock()
+        # Sem provider passado -> usa WindowsCredentialProvider padrão
+        with self.assertRaises(CredentialsMissingError) as ctx:
+            BinancePrivateExchange(cfg_live, client=mock_ccxt)
+
+        self.assertIn("Windows Credential Manager", str(ctx.exception))
+        # Prova que nenhuma chamada de rede foi efetuada e nenhuma ordem foi enviada
+        mock_ccxt.fetch_balance.assert_not_called()
+        mock_ccxt.create_order.assert_not_called()
 
     def test_secrets_never_appear_in_config_repr_or_str(self) -> None:
         """5. Chave e segredo da API NUNCA aparecem em repr(config) ou str(config)."""
@@ -101,13 +110,10 @@ class TestPrivateExchangeConfigAndSecurity(unittest.TestCase):
         secret_sample = "MY_VERY_SECRET_KEY_XYZ"
         key_sample = "MY_PUBLIC_API_KEY_ABC"
 
-        cfg = Config(
-            trading_mode="live",
-            binance_api_key=key_sample,
-            binance_api_secret=secret_sample,
-        )
+        cfg = Config(trading_mode="live")
+        fake_prov = FakeCredentialProvider(api_key=key_sample, api_secret=secret_sample)
         mock_ccxt = MagicMock()
-        client = BinancePrivateExchange(cfg, client=mock_ccxt)
+        client = BinancePrivateExchange(cfg, credential_provider=fake_prov, client=mock_ccxt)
 
         self.assertNotIn(secret_sample, repr(client))
         self.assertNotIn(key_sample, repr(client))
@@ -127,17 +133,14 @@ class TestPrivateExchangeConfigAndSecurity(unittest.TestCase):
         secret = "SUPER_SECRET_SIGNATURE_KEY_12345"
         key = "SUPER_API_KEY_ABCD_54321"
 
-        cfg = Config(
-            trading_mode="live",
-            binance_api_key=key,
-            binance_api_secret=secret,
-        )
+        cfg = Config(trading_mode="live")
+        fake_prov = FakeCredentialProvider(api_key=key, api_secret=secret)
         mock_ccxt = MagicMock()
         mock_ccxt.fetch_balance.side_effect = ccxt.AuthenticationError(
             f"Invalid API-key, IP, or permissions for action, request was signed with {secret}"
         )
 
-        client = BinancePrivateExchange(cfg, client=mock_ccxt)
+        client = BinancePrivateExchange(cfg, credential_provider=fake_prov, client=mock_ccxt)
 
         with self.assertLogs("finbot.private_exchange", level="ERROR") as cm:
             with self.assertRaises(AuthenticationError) as ctx:
@@ -155,13 +158,14 @@ class TestPrivateExchangeResponses(unittest.TestCase):
     """Testes com mock do CCXT para respostas válidas e tratadas da Binance."""
 
     def setUp(self) -> None:
-        self.cfg = Config(
-            trading_mode="live",
-            binance_api_key="dummy_api_key_live",
-            binance_api_secret="dummy_api_secret_live",
-        )
+        self.cfg = Config(trading_mode="live")
+        self.fake_provider = FakeCredentialProvider("dummy_api_key_live", "dummy_api_secret_live")
         self.mock_ccxt = MagicMock()
-        self.client = BinancePrivateExchange(self.cfg, client=self.mock_ccxt)
+        self.client = BinancePrivateExchange(
+            self.cfg,
+            credential_provider=self.fake_provider,
+            client=self.mock_ccxt,
+        )
 
     def test_get_account_status_spot(self) -> None:
         """9. Consulta e normalização correta do status da conta Spot."""
@@ -284,13 +288,14 @@ class TestPrivateExchangeFailures(unittest.TestCase):
     """Testes de tratamento de falhas e mapeamento de exceções CCXT."""
 
     def setUp(self) -> None:
-        self.cfg = Config(
-            trading_mode="live",
-            binance_api_key="test_api_key",
-            binance_api_secret="test_api_secret",
-        )
+        self.cfg = Config(trading_mode="live")
+        self.fake_provider = FakeCredentialProvider("test_api_key", "test_api_secret")
         self.mock_ccxt = MagicMock()
-        self.client = BinancePrivateExchange(self.cfg, client=self.mock_ccxt)
+        self.client = BinancePrivateExchange(
+            self.cfg,
+            credential_provider=self.fake_provider,
+            client=self.mock_ccxt,
+        )
 
     def test_authentication_failure_mapped(self) -> None:
         """16. ccxt.AuthenticationError mapeado para AuthenticationError."""
@@ -336,13 +341,14 @@ class TestArchitecturalOrderBarriers(unittest.TestCase):
     """Testes arquiteturais comprovando a proibição absoluta de ordens na Fase 8.1."""
 
     def setUp(self) -> None:
-        self.cfg = Config(
-            trading_mode="live",
-            binance_api_key="test_api_key",
-            binance_api_secret="test_api_secret",
-        )
+        self.cfg = Config(trading_mode="live")
+        self.fake_provider = FakeCredentialProvider("test_api_key", "test_api_secret")
         self.mock_ccxt = MagicMock()
-        self.client = BinancePrivateExchange(self.cfg, client=self.mock_ccxt)
+        self.client = BinancePrivateExchange(
+            self.cfg,
+            credential_provider=self.fake_provider,
+            client=self.mock_ccxt,
+        )
 
     def test_create_order_is_strictly_blocked(self) -> None:
         """20. Tentativa de invocar create_order é imediatamente bloqueada com LiveTradingBlockedError."""

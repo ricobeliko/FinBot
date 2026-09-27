@@ -53,15 +53,16 @@ class Config:
 
 
 def get_config() -> Config:
-    """Retorna a configuração operacional a partir de variáveis de ambiente com defaults seguros."""
+    """Retorna a configuração operacional a partir de variáveis de ambiente com defaults seguros.
+
+    NOTA DE SEGURANÇA (FASE 8.2A):
+    Credenciais de produção da Binance NÃO são lidas de variáveis de ambiente ou arquivos .env.
+    O armazenamento oficial de credenciais de produção no PC Forte é o Windows Credential Manager,
+    gerenciado via provedor `finbot.credentials.WindowsCredentialProvider`.
+    """
     raw_mode = os.getenv("TRADING_MODE", DEFAULT_TRADING_MODE).strip().lower()
     trading_mode = raw_mode if raw_mode in VALID_TRADING_MODES else DEFAULT_TRADING_MODE
 
-    api_key = os.getenv("BINANCE_API_KEY", "").strip()
-    api_secret = os.getenv("BINANCE_API_SECRET", "").strip()
-
     return Config(
         trading_mode=trading_mode,
-        binance_api_key=api_key,
-        binance_api_secret=api_secret,
     )

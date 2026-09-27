@@ -1,18 +1,26 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.1 — Binance Private Integration Foundation concluída no Notebook.
+FASE 8.2A — Secure Windows Credential Storage concluída no Notebook.
+
+### Secure Windows Credential Storage (FASE 8.2A)
+- Módulo `src/finbot/credentials.py` implementado com arquitetura de provedores de credenciais e proteção estrita contra vazamento:
+  - *Armazenamento Oficial de Produção*: **Windows Credential Manager** via `WindowsCredentialProvider`, utilizando a API nativa do Windows (`Advapi32.dll` via `ctypes`: `CredReadW`, `CredWriteW`, `CredDeleteW`, `CredFree`) sob o target canônico `FinBot/Binance/Production`.
+  - *Proibição Absoluta de Arquivos e Variáveis de Ambiente*: Credenciais de produção NÃO são aceitas nem lidas de `.env`, `.json`, `.yaml`, `.toml`, SQLite, CSV, logs ou variáveis de ambiente (`BINANCE_API_KEY`/`BINANCE_API_SECRET`).
+  - *Estrutura Blindada em Memória*: Dataclass `BinanceCredentials` implementa `repr=False` e mascaramento customizado `__repr__` e `__str__` (`[PROTECTED]`), impedindo exposição em logs, dumps, terminal ou inspeções de objetos.
+  - *Provedor para Testes Automatizados*: `FakeCredentialProvider` em memória permite testes unitários determinísticos, sem tocar no Credential Manager do sistema nem depender da Binance.
+  - *Princípio Fail-Closed*: Se as credenciais estiverem ausentes no Windows Credential Manager, lança `CredentialsMissingError` imediatamente, sem chamada de rede, sem fallback para paper e sem tentativa de ordens.
+  - *CLI Administrativa Segura*: Comandos `python -m finbot.credentials` (`setup` com senha oculta via `getpass`, `status` sem expor segredos, `remove` com confirmação explícita).
+  - *Preservação do Modo Paper*: O modo `paper` (`TRADING_MODE=paper`) permanece 100% desacoplado e não consulta o Windows Credential Manager.
+- 250 testes automatizados (238 passando e 12 skipped no `.venv` padrão; 250 passando 100% no `.venv-research`).
 
 ### Binance Private Integration Foundation (Read-Only Live Boundary)
-- Módulo isolado `src/finbot/private_exchange.py` criado para encapsular exclusivamente operações privadas da Binance Spot via CCXT.
+- Módulo isolado `src/finbot/private_exchange.py` adaptado para obter credenciais exclusivamente via `CredentialProvider`.
 - *Trading Mode*: `TRADING_MODE` centralizado em `src/finbot/config.py` com valor default mandatório `paper`. Modo `paper` não invoca nem instancia endpoints privados.
-- *Credenciais Seguras*: Lidas exclusivamente de variáveis de ambiente (`BINANCE_API_KEY`, `BINANCE_API_SECRET`). Protegidas com `repr=False`, sanitizadas ativamente em logs e mensagens de exceção (`sanitize_secret_text`), e proibidas de persistência em SQLite, CSV ou datasets.
 - *Live Read-Only Estrito*: Modo `live` restrito a consultas autenticadas de conta e saldo (`get_account_status`, `get_balances`, `get_balance`, `get_account_snapshot`).
 - *can_trade Informativo*: O flag `can_trade` do snapshot de conta é tratado estritamente como dado descritivo retornado pela Binance; não concede permissão nem autoriza ordens no FinBot.
 - *Bloqueio Arquitetural de Ordens*: Métodos de envio e cancelamento de ordens (`create_order`, `cancel_order`) levantam expressamente `LiveTradingBlockedError`. Não há caminho executável para ordens reais nesta fase.
-- *Fail-Closed*: Tratamento rigoroso de exceções dedicadas (`CredentialsMissingError`, `AuthenticationError`, `NetworkError`, `RateLimitError`, `InvalidConfigurationError`) sem fallbacks permissivos.
-- *Teste Privado*: `PRIVATE_READ_TEST = NOT_RUN_NO_CREDENTIALS` (sem credenciais ativas no ambiente de dev; zero credenciais inventadas).
-- 232 testes automatizados (220 passando e 12 skipped no `.venv` padrão; 232 passando 100% no `.venv-research`).
+- *Teste Privado*: `PRIVATE_READ_TEST = NOT_RUN_NO_CREDENTIALS` (chaves reais ainda não cadastradas).
 
 ### Adaptive Paper (Shadow Mode, Fail-Closed e Fallback Seguro)
 - Módulo `src/finbot/adaptive.py` implementado para avaliação adaptativa sob rigorosa governança:
@@ -64,7 +72,8 @@ disabled
 not implemented
 
 ### API credentials
-- Suporte a `BINANCE_API_KEY` e `BINANCE_API_SECRET` via variáveis de ambiente para leitura autenticada privada (Fase 8.1).
+- Armazenamento oficial de produção no PC Forte: Windows Credential Manager (target `FinBot/Binance/Production`).
+- Variáveis de ambiente (`BINANCE_API_KEY`/`BINANCE_API_SECRET`) e arquivos `.env` proibidos e desabilitados em produção.
 - Credenciais ausentes no ambiente de desenvolvimento local (`PRIVATE_READ_TEST = NOT_RUN_NO_CREDENTIALS`).
 
 ## Ambiente
@@ -127,9 +136,10 @@ not implemented
 - D026: Model Validation and Registry (Fase 7.9H).
 - D027: Adaptive Paper Safety Architecture (Fase 7.9I).
 - D028: Binance Private Integration Foundation and Read-Only Live Boundary (Fase 8.1).
+- D029: Windows Credential Manager for Binance Secrets (Fase 8.2A).
 
 ## Último checkpoint
-FASE 8.1 — Binance Private Integration Foundation: Implementação do módulo isolado `src/finbot/private_exchange.py` e configuração segura em `src/finbot/config.py`. Estabelecimento do separador explícito `TRADING_MODE` com default estrito `paper` (que bloqueia acesso à API privada). Modo `live` atua como barreira read-only nesta fase, permitindo exclusivamente a leitura normalizada de conta e saldos (`get_account_status`, `get_balances`, `get_balance`, `get_account_snapshot`). O campo `can_trade` do snapshot de conta é tratado estritamente como informativo sem autorizar ordens. Qualquer método de ordem (`create_order`, `cancel_order`) levanta `LiveTradingBlockedError`, garantindo que não existe caminho executável para criação ou cancelamento de ordens reais. Credenciais protegidas ativamente via `repr=False`, mascaramento de logs e exceções (`sanitize_secret_text`) e proibição de persistência. Tratamento de exceções fail-closed para credenciais ausentes, autenticação, rede e rate limits. 22 novos testes unitários e de isolamento adicionados, totalizando 232 testes automatizados (220 passando e 12 skipped no ambiente padrão; 232 passando 100% no ambiente research). Teste privado manual registrado como `NOT_RUN_NO_CREDENTIALS` sem invenção de chaves. Paper Soak Test de 72h no PC Forte 100% preservado e intocado.
+FASE 8.2A — Secure Windows Credential Storage: Implementação do módulo `src/finbot/credentials.py` com `WindowsCredentialProvider` (nativo via `ctypes` e `Advapi32.dll`), `FakeCredentialProvider` para testes e CLI administrativa segura (`setup`, `status`, `remove`). `BinancePrivateExchange` adaptado para consumir credenciais exclusivamente via `CredentialProvider` com semântica fail-closed. Credenciais removidas de `get_config()`, `.env` e variáveis de ambiente. Segredos mascarados via `BinanceCredentials(repr=False)` e higienização contínua de logs. 18 novos testes unitários adicionados em `tests/test_credentials.py` e suíte de private exchange adaptada (totalizando 250 testes automatizados: 238 passando e 12 skipped no ambiente padrão; 250 passando 100% no ambiente research). Nenhuma chave real cadastrada nesta fase. Paper Soak Test de 72h no PC Forte 100% preservado e intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.2 — Execução de Ordens e Gestão de Posição Live (após término do Soak Test e validação operacional).
+FASE 8.2B — Cadastro de Credenciais Reais e Teste Read-Only Live (após término do Soak Test e validação operacional).

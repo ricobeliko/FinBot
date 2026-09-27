@@ -310,7 +310,26 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Teste privado manual em ambiente sem credenciais registrado como `NOT_RUN_NO_CREDENTIALS` sem invenção de dados
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.2 — Execução de Ordens e Gestão de Posição Live (Pendente)
+#### FASE 8.2A — Secure Windows Credential Storage (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/credentials.py` com interface `CredentialProvider` e dataclass `BinanceCredentials`
+- [x] Implementação nativa `WindowsCredentialProvider` usando Windows Credential Manager via `ctypes` e `Advapi32.dll` (target `FinBot/Binance/Production`)
+- [x] Implementação de `FakeCredentialProvider` para isolamento de testes unitários sem dependência do cofre do sistema
+- [x] Eliminação de credenciais privadas em variáveis de ambiente (`BINANCE_API_KEY`, `BINANCE_API_SECRET` removidas de `get_config()`) e arquivos `.env`
+- [x] Proteção ativa em memória: `repr=False`, mascaramento customizado `BinanceCredentials(api_key=[PROTECTED], api_secret=[PROTECTED])`
+- [x] Higienização estrita de logs e exceções (`sanitize_secret_text`), proibição de persistência em arquivos de dados ou SQLite
+- [x] CLI administrativa segura (`python -m finbot.credentials` com comandos `setup`, `status`, `remove` e senha oculta via `getpass`)
+- [x] Adaptação de `BinancePrivateExchange` para obter credenciais exclusivamente via `CredentialProvider`
+- [x] Preservação do modo Paper: `TRADING_MODE=paper` permanece desacoplado e não consulta o Windows Credential Manager
+- [x] Adição de 18 testes unitários de segurança em `tests/test_credentials.py` (totalizando 250 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+#### FASE 8.2B — Cadastro de Credenciais Reais e Teste Read-Only Live (Pendente)
+- Cadastro interativo da API Key real via `python -m finbot.credentials setup` no PC Forte
+- Execução controlada de teste READ-ONLY com chaves reais (sem ordens, sem escrita)
+- Verificação de status e reconciliação de saldos da conta
+
+#### FASE 8.2C — Execução de Ordens e Gestão de Posição Live (Pendente)
 - Conexão com API autenticada de exchange para envio e cancelamento de ordens
 - Uso exclusivo de chaves de API sem permissão de saque (*no withdrawal*)
 - Modo Live bloqueado por padrão; liberação com dupla confirmação operacional
