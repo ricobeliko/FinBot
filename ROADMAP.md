@@ -242,13 +242,26 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
-### FASE 7.9H — Model Validation / Registry ← PRÓXIMA
-- Auditoria de modelos gerados, matrizes de confusão e versionamento no registry local
-- Testes contra sobreajuste e stress testing de predições
+### FASE 7.9H — Model Validation / Registry (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/lab/model_registry.py` com governança científica completa e local
+- [x] Cálculo de fingerprints determinísticos (Dataset via SHA-256 de dados históricos, Features sensível à ordem e versão, Target com semântica e horizonte)
+- [x] Identificador único determinístico (`model_id`) derivado do hash do payload canônico da identidade do modelo
+- [x] Manifesto canônico estruturado (`ModelManifest`) cobrindo proveniência, splits, hiperparâmetros, pré-processamento, métricas de Treino/Validação/Teste e baseline
+- [x] Implementação de estados formais de ciclo de vida: `CANDIDATE`, `VALIDATED`, `REJECTED`, `REVOKED`
+- [x] Implementação do Validation Gate determinístico (`validate_model_candidate`) com 7 verificações de integridade, ausência de leakage e causalidade temporal
+- [x] Regra de Generalização: Avaliação estritamente baseada em partições out-of-sample (Validação e Teste), sendo proibido validar modelos sem superioridade comprovada sobre o baseline
+- [x] Registro formal do modelo real da F7.9G (Ridge em 10k candles) classificado com status `REJECTED` por `MODEL_DOES_NOT_BEAT_BASELINE`
+- [x] Persistência imutável e append-only em SQLite (`data/lab/results/model_registry/model_registry.sqlite3`) com tabela `model_audit_log`
+- [x] Exportação de relatórios consolidados em CSV e JSON (`registry_models.csv`, `registry_models.json`, `validation_report.json`)
+- [x] Implementação de CLI local (`python -m finbot.lab.model_registry`) com comandos `list`, `show` e `validate`
+- [x] Teste de isolamento arquitetural comprovando que Paper Runner, Risk e Strategy possuem zero dependências do Registry
+- [x] Adição de 26 testes unitários em `tests/test_model_registry.py` (totalizando 196 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
 ---
 
-### FASE 7.9I — Adaptive Paper
+### FASE 7.9I — Adaptive Paper ← PRÓXIMA
 - Integração controlada de predições com o Paper Trading em ambiente isolado de validação
 - Avaliação de impacto de decisões adaptativas em forward testing
 

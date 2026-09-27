@@ -1,21 +1,21 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9G — Adaptive Learning concluída no Notebook.
+FASE 7.9H — Model Validation / Registry concluída no Notebook.
 
-### Adaptive Learning (Fundação do Pipeline de Aprendizado sem Leakage)
-- Módulo `src/finbot/lab/learning.py` implementado para pipeline determinístico e 100% offline:
-  - *Auditoria e Suficiência*: Verificação de integridade e salvaguarda amostral objetiva (`check_sample_sufficiency`, $N \ge 50$); banco operacional de paper ($N=3$) corretamente classificado como `INSUFFICIENT_SAMPLE`.
-  - *Fonte Canônica*: Dataset histórico congelado de 10.000 candles de 5m gerando 575 experiências canônicas completas a partir da estratégia SMA 5/10.
-  - *Target*: `future_return_20` derivado estritamente como $(Close[t+20] - Open[t+1]) / Open[t+1]$ conforme contrato da F7.9F.
-  - *Features (14)*: Exclusivamente Decision Time (`price`, `open`, `high`, `low`, `close`, `volume`, `short_window`, `long_window`, `sma_short`, `sma_long`, `sma_distance`, `sma_ratio`, `hour`, `day_of_week`). Zero campos de outcome.
-  - *Split Temporal (NO SHUFFLE)*: 60% Train (345) / 20% Val (115) / 20% Test (115) com garantia $\max(Train) < \min(Val) < \min(Test)$.
-  - *Pré-processamento sem Leakage*: `StandardScaler` ajustado (*fit*) exclusivamente em Train e apenas aplicado em Val e Test (suporte dual: scikit-learn no `.venv-research` e fallback puro em NumPy no `.venv`).
-  - *Modelos e Avaliação*: Baseline constante de Treino vs Ridge Regression ($\alpha=1.0$).
-  - *Resultado Real (10k)*: Ridge MAE Test: 0.004995 vs Baseline MAE Test: 0.003608 ($R^2 = -0.4386$). Conclusão honesta e transparente: `MODEL_DOES_NOT_BEAT_BASELINE`.
-  - *Artefatos Exportados*: `data/lab/results/adaptive_learning/` (`learning_summary.csv`, `learning_results.json`, `learning_manifest.json`, `learning_coefficients.csv`).
-- 170 testes automatizados (158 passando e 12 skipped no `.venv` padrão; 170 passando 100% no `.venv-research`).
-- VectorBT e scikit-learn permanecem estritamente isolados no ambiente de pesquisa (`.venv-research`). Zero ML em produção.
+### Model Validation / Registry (Governança e Validação Científica sem Leakage)
+- Módulo `src/finbot/lab/model_registry.py` implementado para validação formal e versionamento local:
+  - *Identidade e Fingerprints Determinísticos*: `model_id` via SHA-256 do payload canônico; `dataset_fingerprint` (dados históricos), `feature_fingerprint` (ordem e versão) e `target_fingerprint` (semântica e horizonte).
+  - *Manifesto Estruturado (`ModelManifest`)*: Metadados científicos completos, proveniência, ranges temporais, hiperparâmetros, pré-processamento e métricas de Treino/Validação/Teste e baseline.
+  - *Estados Formais*: `CANDIDATE`, `VALIDATED`, `REJECTED`, `REVOKED`.
+  - *Validation Gate*: Auditoria determinística em 7 checagens (integridade de dataset, features sem campos proibidos, target, ordenação temporal estrita $\max(Train) < \min(Val) < \min(Test)$, ausência de shuffle/leakage e superioridade out-of-sample vs baseline).
+  - *Regra de Generalização*: Proibição de validar modelos com base em Treino. Modelos sem superioridade out-of-sample (Val/Test) são formalmente rejeitados.
+  - *Registro do Modelo Real da F7.9G*: Ridge ($\alpha=1.0$) processado e registrado como `REJECTED` por `MODEL_DOES_NOT_BEAT_BASELINE` (MAE Val: 0.003605 vs 0.003387; MAE Test: 0.004995 vs 0.003608).
+  - *Storage Append-Only*: SQLite local (`model_registry.sqlite3`) com tabela imutável `model_audit_log` e exportação para CSV e JSON em `data/lab/results/model_registry/` (ignorado no Git).
+  - *CLI Local*: Suporte a comandos `list`, `show` e `validate` via `python -m finbot.lab.model_registry`.
+  - *Isolamento Arquitetural*: Zero dependência ou importação nos módulos operacionais (`paper`, `risk`, `strategy`).
+- 196 testes automatizados (184 passando e 12 skipped no `.venv` padrão; 196 passando 100% no `.venv-research`).
+- VectorBT, scikit-learn e Registry permanecem estritamente restritos à pesquisa (`.venv-research` / `finbot.lab`). Zero ML em produção.
 
 ### PAPER SOAK TEST (PC FORTE)
 Data/hora UTC: 2026-09-27T00:11:58Z
@@ -114,10 +114,12 @@ none
 - D023: Fundação do Experience Dataset e Blindagem Anti-Leakage (Fase 7.9E).
 - D024: Especificação Matemática de Features e Labels sem Leakage (Fase 7.9F).
 - D025: Adaptive Learning Foundation (Fase 7.9G).
+- D026: Model Validation and Registry (Fase 7.9H).
 
 ## Último checkpoint
-Adaptive Learning (FASE 7.9G): Implementação de `src/finbot/lab/learning.py` estabelecendo o pipeline determinístico e 100% offline de aprendizado supervisionado (Auditoria de suficiência, construção de dataset com 14 features decision-safe e target `future_return_20`, split estritamente temporal 60/20/20 sem shuffle, scaler ajustado exclusivamente em Train, baseline de média constante vs Ridge Regression regularizado, avaliação em Validação e Teste out-of-sample isolado e exportação de relatórios/manifest em `data/lab/results/adaptive_learning/`). Conclusão honesta e transparente: `MODEL_DOES_NOT_BEAT_BASELINE` (Ridge não superou o baseline no Teste out-of-sample). 170 testes passando (158 no .venv padrão com 12 skipped isolados; 170 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
+Model Validation / Registry (FASE 7.9H): Implementação de `src/finbot/lab/model_registry.py` estabelecendo a governança, integridade e versionamento local de modelos de pesquisa de forma determinística e append-only (Fingerprints de Dataset, Features e Target; model_id criptográfico; estados CANDIDATE, VALIDATED, REJECTED, REVOKED; Validation Gate com 7 auditorias de causalidade temporal, ausência de leakage e superioridade OOS vs baseline; storage SQLite local `model_registry.sqlite3` com tabela de auditoria imutável; relatórios em `data/lab/results/model_registry/` e CLI local). O modelo real da F7.9G (Ridge em 10k candles) foi registrado e classificado formalmente como `REJECTED` pelo motivo `MODEL_DOES_NOT_BEAT_BASELINE`. 196 testes passando (184 no .venv padrão com 12 skipped isolados; 196 no .venv-research). PC Forte e Soak Test de 72h 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9H — Model Validation / Registry.
+FASE 7.9I — Adaptive Paper.
+
 

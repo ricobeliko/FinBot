@@ -364,6 +364,42 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Validação de modelos e governança pertencem à Fase 7.9H; paper trading adaptativo pertence à Fase 7.9I.
 - **Motivo**: Validar a infraestrutura e integridade científica do aprendizado de máquina no FinBot, garantindo transparência, ausência de leakage e rigor estatístico antes de qualquer transição para validação de modelos.
 
+---
+
+### D026 — Model Validation and Registry (Fase 7.9H)
+- **Status**: Aceito
+- **Data**: FASE 7.9H
+- **Contexto**: Estabelecer um sistema local, determinístico, auditável e imutável para validação formal, registro, controle de versão e governança de modelos de pesquisa de aprendizado adaptativo gerados no FinBot Lab (`src/finbot/lab/model_registry.py`), impedindo que modelos não validados ou sem generalização sejam considerados para fases posteriores.
+- **Decisão**:
+  - **Objetivo**: Criar uma camada formal de auditoria e governança científica entre o treinamento (`Adaptive Learning`) e eventuais estudos em papel (`Adaptive Paper`), garantindo que apenas modelos com integridade de dados comprovada, ausência de leakage e superioridade out-of-sample (OOS) sobre o baseline possam atingir o status `VALIDATED`.
+  - **Estados Formais do Registry**:
+    - `CANDIDATE`: Modelo recém-treinado e registrado, aguardando submissão formal ao Validation Gate.
+    - `VALIDATED`: Modelo que foi submetido ao Validation Gate e aprovado em 100% dos testes de integridade metodológica e demonstrou superioridade de generalização out-of-sample em relação ao baseline estático.
+    - `REJECTED`: Modelo que falhou em qualquer teste de integridade ou que não superou o baseline nas partições out-of-sample (Validação e Teste).
+    - `REVOKED`: Modelo anteriormente `VALIDATED` que foi posteriormente invalidado devido a nova evidência empírica, revisão de dataset ou detecção de anomalia posterior. O registro original e o motivo da revogação são preservados integralmente.
+  - **Identificador de Modelo Determinístico (`model_id`)**:
+    - Construído exclusivamente via hash criptográfico SHA-256 do payload canônico de identidade científica (dataset fingerprint, source, symbol, timeframe, target, target fingerprint, feature fingerprint, model type, hiperparâmetros, flags de pré-processamento/shuffle e ranges temporais dos splits).
+    - Formato: `model_<sha256[:16]>`. Execuções repetidas da mesma especificação produzem rigorosamente o mesmo ID.
+  - **Fingerprints de Integridade**:
+    - *Dataset Fingerprint*: SHA-256 de timestamps, fechamentos, volumes e contagem de candles, detectando qualquer alteração histórica.
+    - *Feature Fingerprint*: SHA-256 da lista e ordem exata das features e versão do conjunto, detectando alterações estruturais de entrada.
+    - *Target Fingerprint*: SHA-256 do nome do alvo, definição semântica, horizonte e preço de referência.
+  - **Validation Gate Determinístico**:
+    - Executa auditoria automatizada em 7 verificações: integridade do dataset, integridade e ausência de campos proibidos nas features, integridade do target, ordenação temporal estrita ($\max(Train) < \min(Val) < \min(Test)$), ausência de shuffle e vazamento de pré-processamento, consistência do `model_id` e superioridade out-of-sample vs baseline.
+    - *Regra de Generalização*: A decisão de validação é estritamente baseada nas partições OOS (Validação e Teste), sendo proibido usar métricas de Treino para mascarar deficiências de generalização.
+  - **Registro do Modelo Real da F7.9G**:
+    - O modelo Ridge Regression ($\alpha=1.0$) treinado na Fase 7.9G sobre o dataset canônico de 10.000 candles de 5m foi registrado e submetido ao Validation Gate, sendo classificado com status `REJECTED` pelo motivo `MODEL_DOES_NOT_BEAT_BASELINE` (MAE Val: 0.003605 vs Base: 0.003387; MAE Test: 0.004995 vs Base: 0.003608). O resultado foi aceito de forma honesta e transparente.
+  - **Persistência Append-Only e Imutabilidade**:
+    - Implementação de tabela `model_registry` e tabela de histórico `model_audit_log` em SQLite local (`data/lab/results/model_registry/model_registry.sqlite3`).
+    - Nenhuma linha de histórico é sobrescrita silenciosamente; conflitos de mesmo ID com dados científicos divergentes disparam erro de integridade; registros repetidos idênticos são idempotentes.
+    - Relatórios e manifests exportados em CSV e JSON em `data/lab/results/model_registry/` (ignorado no Git).
+  - **Segurança Arquitetural e Ausência de Integração Operacional**:
+    - O Model Registry é 100% restrito a `src/finbot/lab/` (pesquisa local).
+    - Prova automatizada em suíte de testes garante que `finbot.paper`, `finbot.risk` e `finbot.strategy` não possuem nenhuma importação ou dependência do Registry.
+    - Zero ordens reais, zero chamadas à Binance e runtime operacional mantido intacto.
+- **Motivo**: Assegurar governança, rastreabilidade e rigor científico no ciclo de vida de modelos preditivos, impedindo que modelos deficientes ou contaminados por vazamento temporal avancem para etapas de execução financeira simulada ou real.
+
+
 
 
 
