@@ -175,6 +175,20 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.9D — Robustez e Stress Testing do WFA (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Implementação do módulo `src/finbot/lab/robustness.py` para testes de estresse multidimensionais
+- [x] Teste de Sensibilidade a Custos: 4 níveis de fee avaliados (-25%, baseline, +25%, +50%), demonstrando decaimento linear sem perturbação no volume de trades
+- [x] Teste de Vizinhança de Parâmetros (3x3): 100% das janelas temporais classificadas como PLATÔ estável (desvio padrão interno ínfimo de 0,03% a 1,00%), sem detecção de falésias
+- [x] Teste de Sensibilidade ao Top N: subconjuntos de 5, 10 e 20 candidatos demonstraram invariância estatística (retorno médio entre -0,96% e -0,99%, taxa positiva estável em 17%)
+- [x] Teste de Sensibilidade Temporal: avaliações com Train de 3.000, 4.000 e 5.000 candles e Test de 500 candles demonstraram consistência estrutural de assimetria negativa e dependência de W3
+- [x] Análise de Concentração e Estabilidade: quantificação descritiva da distribuição OOS (média de -1,04% vs -2,30% sem a janela positiva W3) e faixas de parâmetros ([3, 4] curta / [189, 300] longa)
+- [x] Persistência estruturada em `data/lab/results/robustness/` (`robustness_summary.csv`, `robustness_windows.csv`, `robustness_results.json`)
+- [x] Adição de 7 testes metodológicos em `tests/test_lab_robustness.py` (totalizando 121 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação

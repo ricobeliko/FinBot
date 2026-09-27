@@ -32,6 +32,7 @@ data/*.sqlite3
 data/lab/results/*.csv
 data/lab/results/*.json
 data/lab/results/wfa/
+data/lab/results/robustness/
 !data/lab/results/.gitkeep
 
 # Distribution / packaging

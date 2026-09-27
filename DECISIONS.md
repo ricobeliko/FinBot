@@ -257,4 +257,21 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Isolamento Operacional**: O WFA permanece uma ferramenta de laboratório/pesquisa offline. Nenhuma funcionalidade de Machine Learning, aprendizado online ou alteração do Paper Runner / Risk Engine foi introduzida.
 - **Motivo**: Comprovação de consistência temporal, transparência na observação de degradação entre treino e teste em diferentes regimes de volatilidade, e consolidação metodológica sem violação do princípio *local-first*.
 
+---
+
+### D022 — Avaliação de Robustez e Stress Testing do WFA (Fase 7.9D)
+- **Status**: Aceito
+- **Data**: FASE 7.9D
+- **Contexto**: Necessidade de descobrir experimentalmente quão sensíveis são os resultados observados no Walk-Forward Analysis (WFA) a pequenas perturbações controladas de custos (taxas), vizinhança de parâmetros, profundidade de seleção (Top N) e variações temporais de corte de janelas.
+- **Decisão**:
+  - **Implementação do Módulo `finbot.lab.robustness`**:
+    - *Sensibilidade a Custos*: Avaliação sistemática de 4 níveis de comissão (`0.00075`, `0.00100`, `0.00125`, `0.00150`), revelando degradação linear de retorno sem alteração abrupta no volume de trades.
+    - *Perturbação de Parâmetros (Vizinhança 3x3)*: Avaliação de vizinhos contíguos (`short ±1`, `long ±2`) para os parâmetros selecionados em cada janela. 100% das janelas exibiram comportamento de **PLATÔ** estável (desvio padrão interno ínfimo entre 0,03% e 1,00%), descartando hipóteses de "falésia" ou anomalias isoladas de sobreajuste.
+    - *Sensibilidade ao Top N*: Preservação de grupos de 5, 10 e 20 candidatos exibiu taxa de retorno e positividade OOS rigorosamente invariantes (~17% de candidatos positivos, retorno médio de -0,96% a -0,99%).
+    - *Sensibilidade Temporal*: Testes com janelas de Train de 3.000, 4.000 e 5.000 candles e Test de 500 candles confirmaram que a assimetria negativa e concentração de ganho em uma única janela (W3) é uma característica estrutural da estratégia de médias no período histórico, e não um artefato do tamanho da janela.
+  - **Exportação Estruturada**: Persistência tabular em `data/lab/results/robustness/` (`robustness_summary.csv`, `robustness_windows.csv` e `robustness_results.json`).
+  - **Isolamento e Segurança**: Metodologia 100% diagnóstica e descritiva. Nenhuma decisão automática, pontuação mágica ou alteração no bot operacional foi permitida.
+- **Motivo**: Obtenção de evidências quantitativas fidedignas sobre a estabilidade local e fragilidades estruturais da estratégia antes de qualquer avanço para modelagem de aprendizado.
+
+
 

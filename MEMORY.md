@@ -1,19 +1,17 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.9C — Walk-Forward Analysis (WFA) concluída no Notebook.
+FASE 7.9D — Robustez e Stress Testing do WFA concluída no Notebook.
 
 ### FinBot Lab (Pesquisa & Otimização Offline)
-- Módulo `src/finbot/lab/wfa.py` implementado com janelas deslizantes (rolling windows).
-- Análise Walk-Forward executada sobre o dataset congelado de 10.000 candles de 5m (Binance Spot):
-  - 6 janelas deslizantes de Train (4.000 candles / ~13,9 dias) e Test (1.000 candles / ~3,47 dias) com passo de 1.000 candles.
-  - Precedência temporal rigorosa: `max(train_timestamp) < min(test_timestamp)` em 100% das janelas.
-  - Seleção dos Top 20 candidatos em cada janela realizada exclusivamente no TRAIN via screening VectorBT.
-  - Avaliação Out-of-Sample (OOS) realizada independentemente no FinBot Lab (`Backtesting.py`).
-  - Execução real concluída em 148,79s com exportação em `data/lab/results/wfa/` (`wfa_windows.csv`, `wfa_summary.csv`, `wfa_results.json`).
-  - Estrutura de dados preparada para futura ingestão em Experience Dataset (sem ML nesta fase).
-- Blindagem anti-leakage e reprodutibilidade 100% comprovadas por testes unitários e de integração.
-- 114 testes automatizados (104 passando e 10 skipped na suite padrão `.venv` devido ao isolamento do VectorBT de pesquisa; 14 testes de pesquisa passando 100% no `.venv-research`).
+- Módulo `src/finbot/lab/robustness.py` implementado para testes de estresse multidimensionais do WFA:
+  - Sensibilidade a Custos: 4 níveis de fee (-25%, baseline, +25%, +50%) com degradação linear e estabilidade de trades.
+  - Vizinhança de Parâmetros (3x3): 100% das janelas temporais classificadas como PLATÔ estável (desvio padrão interno ínfimo de 0,03% a 1,00%), sem detecção de falésias (cliffs).
+  - Sensibilidade ao Top N: subconjuntos de 5, 10 e 20 candidatos demonstraram invariância estatística (retorno médio entre -0,96% e -0,99%, taxa positiva estável em 17%).
+  - Sensibilidade Temporal: avaliações com Train de 3.000, 4.000 e 5.000 candles e Test de 500 candles demonstraram consistência estrutural de assimetria negativa e dependência de W3.
+  - Análise de Concentração e Estabilidade: quantificação descritiva da distribuição OOS (média de -1,04% vs -2,30% sem a janela positiva W3) e faixas de parâmetros ([3, 4] curta / [189, 300] longa).
+  - Persistência estruturada em `data/lab/results/robustness/` (`robustness_summary.csv`, `robustness_windows.csv`, `robustness_results.json`).
+- 121 testes automatizados (109 passando e 12 skipped na suite padrão `.venv` devido ao isolamento do VectorBT de pesquisa; 21 testes de pesquisa passando 100% no `.venv-research`).
 - VectorBT permanece estritamente como dependência isolada de pesquisa (`.venv-research`).
 
 ### PAPER SOAK TEST (PC FORTE)
@@ -109,9 +107,10 @@ none
 - D019: Benchmark Técnico Externo do FinBot Lab (VectorBT, Jesse, Freqtrade e Backtesting.py).
 - D020: Prova do Pipeline Híbrido VectorBT (Screening Train-Only) + FinBot Lab (OOS Evaluation).
 - D021: Adoção de Walk-Forward Analysis (WFA) Temporal com Screening Híbrido no FinBot Lab.
+- D022: Avaliação de Robustez e Stress Testing do WFA (Fase 7.9D).
 
 ## Último checkpoint
-Walk-Forward Analysis (FASE 7.9C): Implementação e validação da análise Walk-Forward com 6 janelas deslizantes (Train 4.000 / Test 1.000 / Step 1.000) sobre o dataset de 10.000 candles de 5m. Seleção 100% baseada no Train com screening VectorBT e avaliação OOS independente com Backtesting.py. Testes de anti-leakage e reprodutibilidade aprovados, exportação em CSV/JSON concluída e 114 testes da suíte passando. PC Forte e Soak Test de 72h permanecem 100% intocados.
+Robustez e Stress Testing do WFA (FASE 7.9D): Bateria de estresse multidimensional executada sobre o WFA nos 10.000 candles de 5m. Comprovação de estabilidade local da vizinhança 3x3 de parâmetros (100% platô sem falésias), decaimento linear de custos sob 4 níveis de taxas, invariância estatística ao Top N preservado (5, 10, 20) e confirmação de assimetria negativa e dependência de W3 across janelas temporais (3k, 4k, 5k e test 500). 121 testes da suíte passando. PC Forte e Soak Test de 72h permanecem 100% intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9D — Modelagem e Estruturação do Experience Dataset para o Futuro Learning Engine.
+FASE 7.9E — Modelagem Conceitual e Estruturação do Experience Dataset.
