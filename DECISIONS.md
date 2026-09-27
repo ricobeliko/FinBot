@@ -210,3 +210,17 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Dataset Ampliado e Congelado**: Download reproduzível e paginado via script dedicado (`scripts/download_dataset.py`) de 10.000 candles fechados de 5m (`data/backtest/binance_BTCUSDT_5m_10000.json`, 1.7 MB), preservando o snapshot original de 500 candles (`binance_BTCUSDT_5m.json`). Integridade temporal (5m contínuos, ausência de duplicatas e OHLC válido) auditada e aprovada.
   - **Bateria Metodológica Automatizada**: Adição de 10 testes determinísticos em `test_lab_methodology.py` (totalizando 100 testes no projeto).
 - **Motivo**: Consolidação de integridade científica e quantitativa prévia a qualquer esforço de força bruta em larga escala, mantendo o bot operacional no PC Forte congelado e protegido.
+
+---
+
+### D019 — Benchmark Técnico Externo do FinBot Lab (VectorBT, Jesse, Freqtrade e Backtesting.py)
+- **Status**: Aceito
+- **Data**: FASE 7.9A
+- **Contexto**: Investigação comparativa de frameworks maduros (VectorBT Community 1.1.1, Jesse, Freqtrade Hyperopt e Backtesting.py 0.6.6) para determinar se o FinBot Lab deve ser mantido, complementado ou substituído, avaliando semântica de execução, paralelismo, métricas, licenças e complexidade operacional no dataset de 10.000 candles de 5m.
+- **Decisão**:
+  - **Manter FinBot Lab e Backtesting.py como Motor Principal**: O FinBot Lab preserva o isolamento metodológico temporal (Train 60% / Val 20% / Test 20%), blindagem contra vazamento de dados e compatibilidade 100% direta com a estratégia do bot.
+  - **Otimização de Fatiamento (Slice Optimization) no Backtest**: A passagem de apenas a janela necessária (`data[-req:]`) elimina a complexidade quadrática de recálculo sobre séries longas, acelerando a execução em até 10x mantendo 100% de equivalência.
+  - **Candidatura de VectorBT como Motor de Pré-Triagem (Screening)**: VectorBT demonstrou concordância exata na contagem de trades (576 trades no benchmark SMA 5/10), drawdown e retorno (divergência residual de apenas ~0,03% por arredondamento de taxas) quando configurado com sinais deslocados (`shift(1)`) e preço de execução em `Open`. Avaliar no futuro como acelerador para varreduras preliminares de 10.000+ combinações.
+  - **Rejeição de Jesse para a Pilha Operacional**: Dependência estrita de PostgreSQL, Redis, Docker e compilação C de TA-Lib em ambiente Windows, violando a simplicidade local-first do projeto.
+  - **Freqtrade como Referência Arquitetural**: Preservado apenas como inspiração técnica para testes de provocação de lookahead e funções de perda customizadas (Sharpe/Drawdown), sem adoção de dependências pesadas ou licença GPL-3.0.
+- **Motivo**: Escolha baseada em evidência empírica, mantendo a simplicidade operacional, independência de infraestrutura e fidelidade às regras determinísticas do FinBot.

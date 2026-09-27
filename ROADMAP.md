@@ -133,6 +133,19 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.9A — Benchmark Externo do FinBot Lab (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Investigação comparativa técnica de VectorBT Community (1.1.1), Jesse, Freqtrade Hyperopt e Backtesting.py
+- [x] Ambiente de pesquisa isolado (`.venv-research`) sem contaminação do ambiente principal
+- [x] Benchmark controlado de SMA 5/10 e Smoke (9 combinações) sobre 10.000 candles de 5m
+- [x] Comprovação de alinhamento matemático exato entre VectorBT (com sinais deslocados) e Backtesting.py (576 trades idênticos)
+- [x] Identificação de otimização de fatiamento (`data[-req:]`) para eliminar complexidade quadrática no backtest
+- [x] Avaliação de dependências, compatibilidade com Windows, suporte a Docker/PostgreSQL e licenças
+- [x] Definição de estratégia arquitetural: manter FinBot Lab com Backtesting.py como motor principal e avaliar VectorBT como acelerador de screening em escala
+- [x] 100 testes do projeto preservados com 100% de sucesso e Soak Test de 72 horas intacto no PC Forte
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação

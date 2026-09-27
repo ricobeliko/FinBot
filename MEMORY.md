@@ -102,9 +102,10 @@ none
 - D016: Repositório GitHub Privado para Sincronização e Backup sem CI/CD.
 - D017: Arquitetura Isolada do FinBot Lab para Backtesting Paralelo e Mitigação de Overfitting.
 - D018: Auditoria Metodológica e Ingestão de Dataset Histórico Ampliado (10.000 candles).
+- D019: Benchmark Técnico Externo do FinBot Lab (VectorBT, Jesse, Freqtrade e Backtesting.py).
 
 ## Último checkpoint
-Auditoria metodológica e ingestão de dataset ampliado (FASE 7.8): 10.000 candles de 5m (Binance Spot) validados, partições independentes confirmadas sem vazamento de dados, 100 testes passando e Soak Test de 72h preservado no PC Forte.
+Benchmark técnico externo (FASE 7.9A): Investigação aprofundada de VectorBT, Jesse, Freqtrade e Backtesting.py. Validação empírica de exata concordância entre VectorBT (sinais deslocados) e Backtesting.py (576 trades no benchmark SMA 5/10), identificação de otimização de fatiamento no Backtesting.py, rejeição de Jesse/Freqtrade para pilha operacional e preservação integral do Soak Test no PC Forte.
 
 ## Próxima etapa (NEXT)
 FASE 7.9 — Pesquisa e screening de parâmetros em escala com walk-forward analysis e dataset ampliado.
