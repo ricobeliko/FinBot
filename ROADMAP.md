@@ -146,6 +146,20 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.9B — Prova do Pipeline Híbrido VectorBT + FinBot Lab (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Prova de alinhamento semântico no TRAIN (6.000 candles): paridade exata de trades (347 trades, 48 wins, 299 losses, 13.83% win rate) entre VectorBT e Backtesting.py
+- [x] Controle com Grid Smoke (9 combinações) comprovou 100% de concordância de ranqueamento e contagem de trades
+- [x] Screening em escala no TRAIN com VectorBT via batching determinístico (batch_size=1.000): 1k (7,16s), 5k (45,08s), 10k (91,64s com ~2,19 GB RAM)
+- [x] Seleção dos Top 20 e Top 50 candidatos baseada exclusivamente no TRAIN (zero data leakage)
+- [x] Reavaliação Out-of-Sample independente no FinBot Lab (`Backtesting.py`) para Train, Validation e Test (31,0s para 20 candidatos / 60 backtests)
+- [x] Teste formal e automatizado contra data leakage comprovou que alterações em Validation/Test têm ZERO efeito sobre o Top N do screening
+- [x] Reprodutibilidade 100% determinística confirmada em execuções repetidas
+- [x] Implementação do módulo `src/finbot/lab/hybrid.py` e bateria de 7 testes em `tests/test_lab_hybrid.py`
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação

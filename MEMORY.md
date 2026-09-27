@@ -1,18 +1,19 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 7.8 — FinBot Lab: Auditoria Metodológica + Dataset Histórico Maior concluída no Notebook.
+FASE 7.9B — Prova do Pipeline Híbrido VectorBT + FinBot Lab concluída no Notebook.
 
 ### FinBot Lab (Pesquisa & Otimização Offline)
-- Arquitetura isolada em `src/finbot/lab/` para backtest paralelo e mitigação de overfitting
-- Auditoria metodológica concluída: partições independentes (Train 60%, Val 20%, Test 20%), capital reiniciado a 10.000 USDT, posição zerada no início de cada split, zero transbordo de posições
-- Warm-up interno: primeiros `long_window` candles de cada split atuam como aquecimento emitindo HOLD, prevenindo contaminação de Buy & Hold da partição anterior
-- Ranqueamento estritamente cego: candidatos ordenados unicamente pelo Treino; Validação e Teste atuam exclusivamente como out-of-sample
-- Dataset histórico ampliado: 10.000 candles de 5m (Binance Spot BTC/USDT, ~34.7 dias) baixados via `scripts/download_dataset.py` e congelados em `data/backtest/binance_BTCUSDT_5m_10000.json` (1.7 MB)
-- Dataset original congelado de 500 candles preservado intacto
-- Dashboard analítico separado em `src/finbot/lab_dashboard.py` (porta 8502, 100% Read-Only)
-- 100 testes unitários automatizados determinísticos passando
-- Zero autoridade operacional: o Lab NÃO altera o bot operacional nem acessa `data/finbot_paper.sqlite3`
+- Arquitetura híbrida comprovada em `src/finbot/lab/hybrid.py`:
+  - Estágio 1: Screening ultrarrápido com VectorBT Community via Numba/NumPy em lotes de 1.000 combinações estritamente sobre a partição de TRAIN (6.000 candles).
+  - Estágio 2: Reavaliação OOS rigorosa e independente dos Top N candidatos no FinBot Lab (`Backtesting.py`) para Train, Validation e Test.
+- Alinhamento semântico auditado e comprovado: sinais no Close[t], deslocados via shift(1), executados no Open[t+1] (347 trades idênticos na SMA 5/10).
+- Ranqueamento smoke (9 combinações) 100% idêntico entre VectorBT e FinBot Lab.
+- Screening em escala: 1k (7,16s), 5k (45,08s), 10k (91,64s com ~2,19 GB de pico de RAM com batching).
+- Blindagem anti-leakage comprovada formalmente: mutações arbitrárias em Validation e Test produzem zero alteração no Top N gerado pelo screening de Train.
+- Reprodutibilidade 100% determinística confirmada.
+- 107 testes automatizados (101 passando e 6 skipped na suite padrão `.venv` devido à ausência do VectorBT de pesquisa; 7 testes do módulo híbrido passando 100% no ambiente `.venv-research`).
+- VectorBT permanece estritamente como dependência isolada de pesquisa (`.venv-research`).
 
 ### PAPER SOAK TEST (PC FORTE)
 Data/hora UTC: 2026-09-27T00:11:58Z
@@ -58,7 +59,8 @@ none
 - Windows
 - Python 3.12.10
 - projeto: D:\Projetos\FinBot (Notebook de desenvolvimento)
-- ambiente virtual: .venv
+- ambiente virtual principal: .venv (produção/paper, 107 testes, zero dependências pesadas de pesquisa)
+- ambiente virtual de pesquisa: .venv-research (isolado, contém vectorbt, numba, scipy)
 - Git: repositório GitHub privado configurado (backup e sincronização sem CI/CD)
   - Notebook: máquina de desenvolvimento, escrita de código, commits locais durante o soak
   - PC forte: runtime 24/7 oficial executando o Soak Test
@@ -72,6 +74,7 @@ none
 - SQLite adotado (persistência local de paper trading e estados de risco)
 - Streamlit 1.64.0 adotado (dashboards visual local 8501 e lab 8502)
 - Windows Task Scheduler (orquestração periódica externa one-shot)
+- VectorBT Community 1.1.1 (pesquisa/screening isolado no Lab)
 
 ## Estado financeiro
 - nenhuma conta autenticada
@@ -103,9 +106,10 @@ none
 - D017: Arquitetura Isolada do FinBot Lab para Backtesting Paralelo e Mitigação de Overfitting.
 - D018: Auditoria Metodológica e Ingestão de Dataset Histórico Ampliado (10.000 candles).
 - D019: Benchmark Técnico Externo do FinBot Lab (VectorBT, Jesse, Freqtrade e Backtesting.py).
+- D020: Prova do Pipeline Híbrido VectorBT (Screening Train-Only) + FinBot Lab (OOS Evaluation).
 
 ## Último checkpoint
-Benchmark técnico externo (FASE 7.9A): Investigação aprofundada de VectorBT, Jesse, Freqtrade e Backtesting.py. Validação empírica de exata concordância entre VectorBT (sinais deslocados) e Backtesting.py (576 trades no benchmark SMA 5/10), identificação de otimização de fatiamento no Backtesting.py, rejeição de Jesse/Freqtrade para pilha operacional e preservação integral do Soak Test no PC Forte.
+Prova do pipeline híbrido (FASE 7.9B): Comprovação experimental completa do pipeline híbrido de dois estágios. VectorBT realiza screening de até 10.000 combinações em ~91s exclusivamente sobre o Train (6.000 candles), seleção de Top N sem nenhum vazamento para Validation/Test, reavaliação out-of-sample independente via FinBot Lab / Backtesting.py, paridade exata de trades e teste formal anti-leakage 100% aprovado. PC Forte e Soak Test permanecem intocados.
 
 ## Próxima etapa (NEXT)
-FASE 7.9 — Pesquisa e screening de parâmetros em escala com walk-forward analysis e dataset ampliado.
+FASE 7.9C — Walk-Forward Analysis e Expansão de Espaço Amostral no FinBot Lab.

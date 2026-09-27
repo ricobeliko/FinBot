@@ -81,9 +81,13 @@ class FinBotSMAStrategy(Strategy):
         """Executado a cada novo candle na ordem cronológica estrita.
 
         self.data.Close contém exclusivamente os candles conhecidos até o instante t atual.
+        Fatiamos apenas os últimos (long_window + 1) candles necessários para eliminar
+        complexidade quadrática O(N^2) sobre séries longas, mantendo semântica estrita.
         """
+        required_candles = self.long_window + 1
+        closes = self.data.Close[-required_candles:]
         result = evaluate_sma_crossover(
-            data=self.data.Close,
+            data=closes,
             short_window=self.short_window,
             long_window=self.long_window,
         )

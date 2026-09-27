@@ -224,3 +224,19 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Rejeição de Jesse para a Pilha Operacional**: Dependência estrita de PostgreSQL, Redis, Docker e compilação C de TA-Lib em ambiente Windows, violando a simplicidade local-first do projeto.
   - **Freqtrade como Referência Arquitetural**: Preservado apenas como inspiração técnica para testes de provocação de lookahead e funções de perda customizadas (Sharpe/Drawdown), sem adoção de dependências pesadas ou licença GPL-3.0.
 - **Motivo**: Escolha baseada em evidência empírica, mantendo a simplicidade operacional, independência de infraestrutura e fidelidade às regras determinísticas do FinBot.
+
+---
+
+### D020 — Prova do Pipeline Híbrido VectorBT (Screening Train-Only) + FinBot Lab (OOS Evaluation)
+- **Status**: Aceito
+- **Data**: FASE 7.9B
+- **Contexto**: Necessidade de acelerar o screening de milhares de combinações de parâmetros (1.000 a 10.000+) mantendo rigorosamente a semântica de execução do FinBot, separação temporal, ausência de lookahead e proteção contra data leakage no dataset de 10.000 candles de 5m.
+- **Decisão**:
+  - **Adoção do Pipeline Híbrido em Dois Estágios**:
+    1. *Estágio 1 (Screening Bruto)*: VectorBT Community vetorizado via NumPy/Numba processa o grid em lotes (`batch_size = 1000`) estritamente sobre a partição de **TRAIN** (6.000 candles). Sinais observados no `Close[t]` são deslocados via `.shift(1)` e executados no preço `Open[t+1]`, com `fees=0.001` e `init_cash=10000.0`.
+    2. *Estágio 2 (Diagnóstico Out-of-Sample)*: FinBot Lab (`finbot.lab.evaluator` / `Backtesting.py`) reavalia independentemente apenas os **Top N** candidatos (Top 20 / Top 50) selecionados no Estágio 1, gerando métricas completas para Train (60%), Validation (20%) e Test (20%).
+  - **Alinhamento Semântico e Equivalência Verificada**: Teste com SMA 5/10 no Train comprovou paridade exata de contagem de trades (347 vs 347, 48 wins, 299 losses, 13.83% win rate) e ranking 100% idêntico no grid smoke de 9 combinações.
+  - **Blindagem Formal Anti-Leakage**: Provado experimentalmente que mutações drásticas nas partições de Validation e Test produzem zero alteração no Top N gerado pelo screening de Train (100% idêntico).
+  - **Isolamento de Dependência (Research-Only)**: O VectorBT permanece confinado exclusivamente ao ambiente de pesquisa (`.venv-research`) e não foi adicionado ao `pyproject.toml` ou `requirements.txt` da produção. O runtime operacional (Paper Runner, Risk Engine, Dashboard 8501) permanece 100% desacoplado e intocado.
+- **Motivo**: Aceleração de ~100x na triagem exploratória (10.000 combinações avaliadas em ~91s), mantendo bounded memory (~2.19 GB RAM), determinismo estrito e integridade metodológica sem concessões.
+
