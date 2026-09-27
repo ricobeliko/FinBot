@@ -28,6 +28,9 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 !data/.gitkeep
+data/lab/results/*.csv
+data/lab/results/*.json
+!data/lab/results/.gitkeep
 
 # Distribution / packaging
 dist/

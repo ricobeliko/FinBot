@@ -106,6 +106,20 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 
 ---
 
+### FASE 7.7 — FinBot Lab (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do pacote `src/finbot/lab/` completamente isolado do bot operacional
+- [x] Particionamento cronológico estrito (Train 60%, Validation 20%, Test 20%) sem shuffle
+- [x] Gerador de grid SMA com regra `short < long` e presets (`smoke`, `standard`, `full` com trava `--confirm-full`)
+- [x] Reutilização direta da função de backtest sem duplicação de lógica financeira
+- [x] Orquestração paralela com `ProcessPoolExecutor` (`workers=auto|N`) e determinismo de resultados
+- [x] Exportação de CSV tabular e JSON de metadados de reprodutibilidade em `data/lab/results/`
+- [x] Dashboard analítico separado em `src/finbot/lab_dashboard.py` (porta 8502, 100% Read-Only)
+- [x] 20 novos testes unitários determinísticos do Lab (90 testes totais no projeto)
+- [x] Zero autoridade operacional: o Lab não altera nem interfere na estratégia em execução no PC Forte
+
+---
+
 ### FASE 7B — Dashboard Mobile-Friendly / Refinamento
 - Testes e refinamento visual direcionados para telas pequenas (smartphones e tablets)
 - Melhorias ergonômicas de navegação e densidade de informação

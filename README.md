@@ -177,6 +177,19 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
    powershell -ExecutionPolicy Bypass -File scripts\remove_paper_task.ps1
    ```
 
+9. FinBot Lab — Pesquisa Quantitativa Isolada (FASE 7.7):
+   ```powershell
+   # Executar sweep de parâmetros em modo isolado (preset smoke padrão):
+   python -m finbot.lab --preset smoke
+
+   # Executar com quantidade customizada de workers:
+   python -m finbot.lab --preset standard --workers 4
+
+   # Visualizar resultados no Dashboard dedicado do Lab (porta 8502, 100% Read-Only):
+   streamlit run src/finbot/lab_dashboard.py --server.port=8502 --server.address=127.0.0.1
+   ```
+   > **Aviso Metodológico**: Resultados sobre o snapshot de 500 candles destinam-se exclusivamente à validação técnica de engenharia (`EXPLORATORY / ENGINEERING VALIDATION`), sem autoridade para alterar a estratégia operacional.
+
 ---
 
 ## Roadmap Resumido
@@ -191,6 +204,7 @@ Market Data ──▶ Strategy ──▶ Risk Manager ──▶ Broker ──▶
 - **FASE 7A — Dashboard Local Visual** (concluída): Acompanhamento visual via Streamlit (localhost).
 - **FASE 7.5 — Automated Paper Runner** (concluída): Agendamento nativo Windows Task Scheduler (1m) e observabilidade.
 - **FASE 7.6 — Paper Soak Test** (em andamento): Observação contínua de 72 horas para validação de estabilidade.
+- **FASE 7.7 — FinBot Lab** (concluída no notebook): Backtesting paralelo, split Train/Val/Test e laboratório quantitativo.
 - **FASE 7B — Dashboard Mobile-Friendly**: Refinamento e ergonomia para telas menores.
 - **FASE 7C — Acesso Remoto Seguro**: Avaliação de acesso seguro read-only.
 - **FASE 8 — Integração Live**: Operações reais (bloqueado por padrão).

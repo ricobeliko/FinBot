@@ -182,3 +182,18 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **Testes Unitários Versionados (`tests/`)**: A suíte de testes permanece integralmente versionada no Git para ser executada de forma autônoma e offline em cada máquina local.
   - **Isolamento de Estado Operacional (`data/finbot_paper.sqlite3`)**: O banco de dados SQLite local, dados de saldo paper, ordens simuladas, logs e variáveis de ambiente (`.env`) permanecem ignorados no `.gitignore` e restritos à máquina local em que operam.
 - **Motivo**: Segurança do patrimônio de código sem dependência de plataformas de automação em nuvem, garantia de execução e testes 100% locais e preservação da integridade da máquina de execução contínua.
+
+---
+
+### D017 — Arquitetura Isolada do FinBot Lab para Backtesting Paralelo e Mitigação de Overfitting
+- **Status**: Aceito
+- **Data**: FASE 7.7
+- **Contexto**: Necessidade de um laboratório quantitativo para testar combinações de parâmetros (grid sweep), utilizar múltiplos núcleos de CPU via paralelismo de processos e avaliar sistematicamente o risco de overfitting com divisão cronológica de dados (Train / Validation / Test).
+- **Decisão**: Criar o pacote isolado `src/finbot/lab/` e dashboard dedicado `src/finbot/lab_dashboard.py` (porta 8502):
+  - **Isolamento Total do Bot Operacional**: O Lab opera unicamente sobre dados históricos locais, sem jamais acessar, alterar ou criar `data/finbot_paper.sqlite3`, `paper_account`, `paper_position`, `paper_trades` ou o Task Scheduler. O Lab não possui autoridade para promover estratégias automaticamente para o bot operacional.
+  - **Divisão Cronológica Estrita**: Particionamento temporal (60% Train, 20% Validation, 20% Test) sem embaralhamento (no-shuffle), evitando qualquer look-ahead bias ou contaminação entre partições.
+  - **Reutilização da Lógica Financeira Oficial**: Sem duplicação de cálculo; as simulações reutilizam diretamente `run_backtest` de `finbot.backtest`.
+  - **Paralelismo Seguro via Standard Library**: Adoção de `concurrent.futures.ProcessPoolExecutor` com suporte a `--workers auto` (`max(1, cpu_count - 1)`), garantindo determinismo idêntico entre execuções sequenciais e paralelas.
+  - **Salvaguarda do Preset FULL**: Presets configuráveis (`smoke`, `standard`, `full`), onde `full` requer confirmação explícita (`--confirm-full`) para prevenir sobrecarga de computação no notebook.
+  - **Validade do Dataset Conhecida**: Resultados do snapshot de 500 candles são explicitamente rotulados como `EXPLORATORY / ENGINEERING VALIDATION` e não constituem evidência estatística suficiente de robustez final.
+- **Motivo**: Prover infraestrutura quantitativa profissional, reprodutível e determinística mantendo o bot operacional estritamente congelado e protegido.
