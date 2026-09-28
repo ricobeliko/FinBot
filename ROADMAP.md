@@ -337,16 +337,26 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Adição de 16 testes unitários em `tests/test_credentials_gui.py` (totalizando 267 testes no projeto)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.2C — Cadastro de Credenciais Reais no PC Forte e Teste Read-Only Live (Pendente)
-- Cadastro interativo da API Key real via GUI segura (`python -m finbot.credentials_gui`) no PC Forte
-- Execução controlada de teste READ-ONLY com chaves reais (sem ordens, sem escrita)
-- Verificação de status e reconciliação de saldos da conta
+#### FASE 8.2C — Binance Private Read-Only Validation (Concluída no PC Forte)
+- **Status**: CONCLUÍDA
+- [x] Homologação operacional realizada e validada no ambiente de execução oficial do PC Forte (`C:\Projetos\FinBot`)
+- [x] Status do Windows Credential Manager: `PRESENT` sob target canônico `FinBot/Binance/Production`
+- [x] Validação estrutural de credenciais: API Key (64 caracteres), API Secret (64 caracteres), zero espaços nas extremidades
+- [x] Diagnóstico e resolução da causa raiz do erro Binance -1022 (truncamento na entrada do terminal resolvido pela GUI da Fase 8.2B)
+- [x] Autenticação privada real validada via `BinancePrivateExchange.get_account_status()`: `PASS`
+- [x] Consulta privada de saldos da conta via `BinancePrivateExchange.get_balances()`: `PASS`
+- [x] API com permissões estritas: apenas leitura (Read-Only), restrição de IP configurada para o PC Forte, trading desabilitado na API, saídas desabilitadas (zero withdrawals) e transferências desabilitadas (zero transfers)
+- [x] Bloqueio arquitetural de ordens reais 100% mantido: zero ordens criadas, zero ordens canceladas, nenhum endpoint de trading invocado (`create_order` e `cancel_order` bloqueados com `LiveTradingBlockedError`)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.2D — Execução de Ordens e Gestão de Posição Live (Pendente)
-- Conexão com API autenticada de exchange para envio e cancelamento de ordens
-- Uso exclusivo de chaves de API sem permissão de saque (*no withdrawal*)
-- Modo Live bloqueado por padrão; liberação com dupla confirmação operacional
-- Integração estrita com o Risk Engine e limites de perda operacional
+#### FASE 8.3 — Live Execution Safety Foundation (Pendente)
+- Esta fase NÃO habilita trading real imediatamente.
+- Construção dos alicerces e salvaguardas preliminares para execução segura:
+  - Verificação estrita de pré-condições da exchange (filtros de lote `minQty`, `stepSize`, filtros de preço `tickSize` e notional mínimo).
+  - Validação estática contínua de permissões da chave de API (bloqueio imediato se withdrawal ou transfer estiverem habilitados).
+  - Definição do mecanismo de autorização formal de execução (Hard Kill Switch de segurança e dupla confirmação do operador).
+  - Mapeamento determinístico de reconciliação de estado entre ordens locais e a exchange.
+  - `create_order` e `cancel_order` permanecem bloqueados por padrão até a homologação completa das salvaguardas.
 
 ---
 

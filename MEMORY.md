@@ -1,7 +1,27 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.2B — GUI Local Segura para Cadastro das Credenciais Binance concluída no Notebook.
+FASE 8.2C — Homologação Binance Private API Read-Only concluída no PC Forte.
+
+### Binance Private API Read-Only Validation (FASE 8.2C)
+- Homologação operacional realizada e validada com sucesso no ambiente oficial do PC Forte (`C:\Projetos\FinBot`):
+  - *Checkpoint Operacional Oficial*:
+    ```text
+    BINANCE_PRIVATE_AUTH = PASS
+    BINANCE_PRIVATE_BALANCE_READ = PASS
+    CREDENTIAL_STORAGE = WINDOWS_CREDENTIAL_MANAGER
+    LIVE_ORDER_EXECUTION = BLOCKED
+    WITHDRAWALS = DISABLED
+    TRANSFERS = DISABLED
+    PAPER_SOAK = PRESERVED
+    ```
+  - *Validação de Armazenamento e Integridade*: Credenciais lidas com sucesso do Windows Credential Manager (`target=FinBot/Binance/Production`, status `PRESENT`). Validação estrutural confirmou API Key (64 caracteres) e API Secret (64 caracteres) íntegros, sem espaços em branco nas extremidades.
+  - *Causa Raiz e Solução do Erro -1022*: A falha de assinatura anterior ("Signature for this request is not valid.") foi formalmente diagnosticada como truncamento no terminal legado (`getpass` colou apenas 2 caracteres do secret). O re-cadastro seguro via GUI Tkinter da Fase 8.2B (`python -m finbot.credentials_gui`) corrigiu definitivamente as chaves.
+  - *Autenticação Privada Real*: Chamada a `BinancePrivateExchange.get_account_status()` concluída com status `PASS`.
+  - *Consulta Privada de Saldos*: Chamada a `BinancePrivateExchange.get_balances()` concluída com status `PASS` (ativos carregados com sucesso; valores nominais e quantidades estritamente preservados fora do repositório).
+  - *Perímetro de Segurança da Chave Binance*: Permissão estrita Read-Only, restrição por IP (IP restriction) configurada para o PC Forte, trading desabilitado, saídas/saques desabilitados (zero withdrawals) e transferências desabilitadas (zero transfers).
+  - *Inviolabilidade de Trading Real*: Nenhuma ordem foi criada ou cancelada; nenhum endpoint de trading foi invocado. `create_order` e `cancel_order` permanecem levantando `LiveTradingBlockedError`.
+  - *Paper Soak Test*: Continua em execução ininterrupta de 72 horas no PC Forte.
 
 ### GUI Local Segura para Cadastro de Credenciais (FASE 8.2B)
 - Módulo `src/finbot/credentials_gui.py` implementado com Tkinter nativo (Python Standard Library, zero novas dependências):
@@ -148,9 +168,10 @@ not implemented
 - D028: Binance Private Integration Foundation and Read-Only Live Boundary (Fase 8.1).
 - D029: Windows Credential Manager for Binance Secrets (Fase 8.2A).
 - D030: Secure Local Credential Enrollment GUI (Fase 8.2B).
+- D031: Binance Private API Read-Only Operational Validation (Fase 8.2C).
 
 ## Último checkpoint
-FASE 8.2B — GUI Local Segura para Cadastro das Credenciais Binance: Criação do módulo `src/finbot/credentials_gui.py` utilizando Tkinter nativo (sem dependências externas), com visual limpo, máscara padrão no API Secret (`show="*"`), alternância opcional "Mostrar API Secret", validação preventiva contra entradas vazias e colagens truncadas (`len < 16`, prevenindo o caso real de `SECRET_LEN=2` ocorrido no terminal do PC Forte). Gravação exclusiva no Windows Credential Manager via `WindowsCredentialProvider` (target `FinBot/Binance/Production`). Isolamento estrito de rede (zero chamadas à exchange no cadastro), zero persistência em arquivos, zero exposição de credenciais em logs ou diálogos e limpeza imediata de variáveis em memória na GUI após salvamento. CLI dedicada `python -m finbot.credentials_gui` e integração da ação `gui` na CLI existente `python -m finbot.credentials gui`. 16 novos testes unitários adicionados em `tests/test_credentials_gui.py` (totalizando 267 testes no projeto: 255 passando e 12 skipped no ambiente padrão; 267 passando 100% no ambiente research). Paper Soak Test de 72h no PC Forte 100% preservado e intocado.
+FASE 8.2C — Binance Private Read-Only Validation: Homologação operacional concluída com sucesso no PC Forte (`C:\Projetos\FinBot`). Verificação de credenciais no Windows Credential Manager reportou `PRESENT` sob o target `FinBot/Binance/Production`. Validação estrutural confirmou integridade de 64 caracteres em API Key e API Secret, sem whitespace. Resolução definitiva do erro -1022 (truncamento no CLI antigo superado pela GUI da Fase 8.2B). Chamadas privadas reais executadas em modo estritamente Read-Only com sucesso: `get_account_status()` -> PASS e `get_balances()` -> PASS. API com restrição de IP para o PC Forte, saques desabilitados (zero withdrawals), transferências desabilitadas (zero transfers) e trading desabilitado na exchange. Zero ordens criadas ou canceladas (`create_order` e `cancel_order` permanecem bloqueados com `LiveTradingBlockedError`). Paper Soak Test de 72h preservado ininterrupto no PC Forte.
 
 ## Próxima etapa (NEXT)
-FASE 8.2C — Cadastro de Credenciais Reais no PC Forte e Teste Read-Only Live (cadastro da API Key/Secret via GUI segura e execução de teste read-only sem ordens).
+FASE 8.3 — Live Execution Safety Foundation (desenho de salvaguardas preliminares, verificação de filtros de lote/preço da Binance Spot e travas de segurança antes de qualquer execução de ordens).

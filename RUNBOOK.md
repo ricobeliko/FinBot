@@ -189,3 +189,45 @@ powershell -ExecutionPolicy Bypass -File scripts\check_finbot.ps1
 ```
 
 > **Nota Operacional**: O banco de dados operacional SQLite (`data/finbot_paper.sqlite3`), logs e eventuais arquivos `.env` são ignorados no Git e pertencem estritamente à máquina local em que o bot está executando.
+
+---
+
+## 13. Procedimento Operacional: Binance Read-Only Validation (FASE 8.2C)
+
+Procedimento seguro para validação operacional da conexão autenticada em modo estritamente **Read-Only** no ambiente autorizado (PC Forte).
+
+### 13.1 Verificar Status das Credenciais no Windows Credential Manager
+```powershell
+python -m finbot.credentials status
+```
+- Deve reportar `Credential store: Windows Credential Manager` e `Binance credentials: PRESENT`.
+- Se reportar `MISSING`, realize o cadastro seguro conforme o passo seguinte.
+
+### 13.2 Cadastrar ou Atualizar Credenciais via GUI Segura (se necessário)
+```powershell
+python -m finbot.credentials_gui
+```
+- Cole a API Key e o API Secret nos respectivos campos.
+- O campo API Secret permanece mascarado por padrão (`show="*"`); use a opção "Mostrar API Secret" apenas para conferência visual prévia antes de salvar.
+- A GUI valida o comprimento preventivo e grava diretamente no Windows Credential Manager sob o target `FinBot/Binance/Production`.
+
+### 13.3 Testar Leitura de Status da Conta (Read-Only)
+```powershell
+python -c "from finbot.private_exchange import BinancePrivateExchange; ex = BinancePrivateExchange(); st = ex.get_account_status(); print(f'Account Status: OK | Tipo: {st.account_type} | canTrade: {st.can_trade}')"
+```
+- Valida a conectividade autenticada HMAC com a Binance Spot.
+- Exibe apenas o tipo de conta e flag descritivo, sem expor chaves ou segredos.
+
+### 13.4 Testar Consulta Privada de Saldos (Read-Only)
+```powershell
+python -c "from finbot.private_exchange import BinancePrivateExchange; ex = BinancePrivateExchange(); b = ex.get_balances(); print(f'Balance Query: OK | Total de ativos com saldo: {len(b)}')"
+```
+- Reconcilia a capacidade de consulta privada de ativos da conta.
+- Não expõe quantias patrimoniais no terminal.
+
+### 13.5 Regras Mandatórias de Segurança Operacional
+- **NUNCA imprimir credenciais** no terminal, scripts ou saídas de depuração.
+- **NUNCA passar credenciais como argumentos** de linha de comando (`--api-key`, etc.).
+- **NUNCA salvar chaves ou segredos em arquivos** (`.env`, `.json`, `.yaml`, `.txt`, `.sqlite3`, `.csv` ou logs).
+- **NUNCA registrar valores reais de saldo ou quantidades financeiras** em relatórios versionados ou issues.
+- **Trading real bloqueado**: `create_order` e `cancel_order` permanecem desabilitados com bloqueio arquitetural inviolável (`LiveTradingBlockedError`).

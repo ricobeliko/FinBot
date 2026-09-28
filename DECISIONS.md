@@ -538,3 +538,28 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Os comandos existentes `status`, `setup` e `remove` continuam funcionando sem qualquer alteração.
 - **Motivo**: Eliminar falhas operacionais decorrentes de colagem cega no terminal e fornecer um mecanismo ergonômico, confiável e inviolável para o operador registrar suas credenciais no Windows Credential Manager antes da execução de testes read-only.
 
+---
+
+### D031 — Binance Private API Read-Only Operational Validation (Fase 8.2C)
+- **Status**: Aceito
+- **Data**: FASE 8.2C
+- **Contexto**: Com a implementação do armazenamento seguro no Windows Credential Manager (Fase 8.2A) e da GUI local de cadastro (Fase 8.2B), fez-se necessária a homologação operacional real no ambiente oficial do PC Forte (`C:\Projetos\FinBot`), verificando se a autenticação HMAC e as consultas privadas de leitura funcionavam contra os servidores de produção da Binance Spot sem comprometer a política de bloqueio de ordens e sem registrar informações patrimoniais privadas.
+- **Decisão**:
+  - **Autenticação Real Homologada com Sucesso**:
+    - Execução controlada dos métodos de leitura da exchange privada no PC Forte:
+      - `BinancePrivateExchange.get_account_status()` -> `PASS` (resposta estruturada `AccountStatus` recebida com sucesso).
+      - `BinancePrivateExchange.get_balances()` -> `PASS` (ativos recuperados com sucesso).
+  - **Windows Credential Manager como Fonte Única da Verdade**:
+    - A homologação confirmou que o Windows Credential Manager (target `FinBot/Binance/Production`) atende perfeitamente ao runtime 24/7 sem qualquer dependência de arquivos planos (`.env`, `.json`), logs ou variáveis de ambiente.
+  - **GUI como Mecanismo Oficial de Enrollment**:
+    - O incidente de erro Binance -1022 ("Signature for this request is not valid.") foi formalmente rastreado como truncamento da entrada oculta do terminal legado (`getpass` havia gravado apenas 2 caracteres do secret). A GUI Tkinter da Fase 8.2B corrigiu o cadastro em caráter definitivo, tornando-se o método oficial e preferencial para inclusão de credenciais.
+  - **Separação Estrita entre Private Read Access e Live Order Execution**:
+    - A capacidade técnica de ler dados autenticados (status da conta e saldos) permanece estritamente dissociada de qualquer envio de ordens.
+    - Os métodos `create_order` e `cancel_order` permanecem bloqueados de forma fail-closed (`LiveTradingBlockedError`). Nenhuma ordem real foi criada, alterada ou cancelada na homologação.
+  - **Configuração de Perímetro Seguro da API Binance**:
+    - A API Key utilizada opera sob os princípios de menor privilégio: modo estritamente Read-Only, restrição por IP (IP restriction) vinculada ao PC Forte, sem permissão de trading, sem permissão de saques (*no withdrawals*) e sem transferências.
+  - **Sigilo Patrimonial no Repositório**:
+    - Nenhum valor nominal, quantidade de moedas, saldo ou identificador sensível foi inserido no repositório Git, documentação ou logs, preservando confidencialidade total.
+- **Motivo**: Consolidar formalmente a validação operacional da camada privada da Binance em produção, garantindo estabilidade e aderência total aos protocolos de segurança antes do início dos estudos de governança de execução na Fase 8.3.
+
+
