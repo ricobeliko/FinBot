@@ -42,6 +42,9 @@ class Config:
     adaptive_registry_db: str = "data/lab/results/model_registry/model_registry.sqlite3"
     live_trading_acknowledged: bool = False
     live_max_order_notional: float = 100.0
+    live_execution_enabled: bool = False
+    live_micro_order_max_notional: float = 15.0
+    real_order_submission_enabled: bool = False
     binance_api_key: str = field(default="", repr=False)
     binance_api_secret: str = field(default="", repr=False)
 
@@ -74,8 +77,24 @@ def get_config() -> Config:
     except ValueError:
         live_max_order_notional = 100.0
 
+    raw_exec = os.getenv("LIVE_EXECUTION_ENABLED", "false").strip().lower()
+    live_execution_enabled = raw_exec in ("1", "true", "yes")
+
+    raw_micro = os.getenv("LIVE_MICRO_ORDER_MAX_NOTIONAL", "15.0").strip()
+    try:
+        live_micro_order_max_notional = float(raw_micro)
+    except ValueError:
+        live_micro_order_max_notional = 15.0
+
+    raw_real = os.getenv("REAL_ORDER_SUBMISSION_ENABLED", "false").strip().lower()
+    real_order_submission_enabled = raw_real in ("1", "true", "yes")
+
     return Config(
         trading_mode=trading_mode,
         live_trading_acknowledged=live_trading_acknowledged,
         live_max_order_notional=live_max_order_notional,
+        live_execution_enabled=live_execution_enabled,
+        live_micro_order_max_notional=live_micro_order_max_notional,
+        real_order_submission_enabled=real_order_submission_enabled,
     )
+

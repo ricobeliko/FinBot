@@ -663,6 +663,90 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Zero chamadas HTTP a endpoints de negociação; validação comprovada pelo teste sentinela `test_phase_8_4a_has_zero_live_order_capability`.
 - **Motivo**: Construir e auditar integralmente o mecanismo técnico de submissão de ordens antes de qualquer exposição real a capital ou livro de ofertas, provando determinismo, idempotência e conformidade regulatória da exchange.
 
+---
+
+### D034 — Guarded Live Order Execution Foundation (Fase 8.4B)
+- **Status**: Aceito
+- **Data**: FASE 8.4B
+- **Contexto**: Com o motor Dry-Run concluído na Fase 8.4A, é necessário estabelecer a arquitetura formal do executor LIVE para futuras operações na Binance Spot. Contudo, a Fase 8.4B **não autoriza nenhuma ordem real**. O executor live deve existir arquiteturalmente e ser 100% testável em ambiente hermético (in-memory/fake), mantendo-se operacionalmente bloqueado contra qualquer envio acidental à API de negociação da Binance.
+- **Decisão**:
+  - **Evolução Arquitetural em Camadas com Defesa em Profundidade**:
+    ```text
+    Strategy
+       ↓
+    OrderIntent
+       ↓
+    Risk Engine
+       ↓
+    MarketFilterGuard
+       ↓
+    StateReconciler
+       ↓
+    LiveSafetyGate
+       ↓
+    ApprovedOrderIntent
+       ↓
+    Execution Engine
+       ├── DRY_RUN → DryRunExecutionEngine
+       └── LIVE    → GuardedLiveExecutionEngine
+                         ↓
+                    ExchangeOrderAdapter
+                         ↓
+                    BinancePrivateExchange
+                         ↓
+                     [BLOCKED IN 8.4B]
+    ```
+  - **GuardedLiveExecutionEngine Exclusivo para `ApprovedOrderIntent`**:
+    - O executor aceita **unicamente** instâncias válidas de `ApprovedOrderIntent`.
+    - Qualquer tentativa de submeter `OrderIntent` cru, `RejectedOrderIntent` ou tipos inválidos resulta em rejeição imediata fail-closed (`InvalidExecutionIntentError`).
+    - Não duplica as responsabilidades do `LiveSafetyGate` ou do `Risk Engine`.
+  - **Triple Live Arming (Tripla Chave de Armamento)**:
+    - Três condições independentes e cumulativas necessárias para qualquer execução em modo live:
+      1. `trading_mode == 'live'`
+      2. `live_trading_acknowledged == True`
+      3. `live_execution_enabled == True` (Default mandatório: `False`)
+    - Se qualquer uma dessas condições for falsa, a submissão é rejeitada imediatamente com `LiveExecutionArmingError`.
+  - **Micro-Order Cap Dedicado (`live_micro_order_max_notional`)**:
+    - Separação estrita entre `live_max_order_notional` (limite geral do `LiveSafetyGate`, default 100 USDT) e `live_micro_order_max_notional` (teto específico para homologação de micro-ordens, default conservador: 15.0 USDT).
+    - Se o valor nocional da ordem exceder `live_micro_order_max_notional`, a ordem é categoricamente **REJEITADA** (`MicroOrderCapExceededError`).
+    - **Regra de Não-Interferência**: Nunca reduzir, truncar ou alterar o tamanho da ordem automaticamente para caber no teto.
+  - **Injeção Explícita de Dependência (`ExchangeOrderAdapter`)**:
+    - Interface/Protocolo formal `ExchangeOrderAdapter` desacoplando o executor de clientes de rede específicos (`submit_order`, `cancel_order`, `fetch_order_status`).
+    - `FakeExchangeOrderAdapter` implementado para testes unitários herméticos e simulação controlada de timeouts, recusas e preenchimentos.
+    - O `GuardedLiveExecutionEngine` **somente opera com adapter explicitamente injetado** no construtor. Ele **não** instancia nem cria implicitamente instâncias de `BinancePrivateExchange`, eliminando qualquer caminho acidental de rede.
+  - **Trava Final da Fase (`RealOrderSubmissionBlockedError`)**:
+    - Estrutura concreta `BinanceOrderAdapter` preparada para a futura integração na Fase 8.4C, porém protegida por trava adicional: `real_order_submission_enabled` (Default: `False`).
+    - Na Fase 8.4B, qualquer chamada a `BinanceOrderAdapter.submit_order` ou `cancel_order` levanta imediatamente `RealOrderSubmissionBlockedError` **antes** de qualquer contato com o CCXT ou chamada de rede.
+    - `BinancePrivateExchange.create_order()` e `cancel_order()` permanecem bloqueados levantando `LiveTradingBlockedError`.
+    - Prova sentinela formalizada em `test_phase_8_4b_cannot_reach_real_binance_order_endpoint`, demonstrando que mesmo se todas as flags de configuração de LIVE forem configuradas como `True`, a barreira final da fase impede qualquer tráfego HTTP.
+  - **Princípio Soberano de Falha Ambígua (`UNKNOWN != FAILED` e `TIMEOUT != SAFE TO RETRY`)**:
+    - Em sistemas distribuídos financeiros, um timeout, reset de conexão ou resposta perdida após o envio da requisição não significa que a ordem falhou; ela pode ter sido recebida e aceita pelo livro de ofertas da exchange.
+    - O FinBot adota o axioma:
+      ```text
+      TIMEOUT / NETWORK ERROR
+                 ↓
+          STATUS = UNKNOWN
+                 ↓
+      NUNCA REENVIAR AUTOMATICAMENTE
+                 ↓
+      RECONCILE BY CLIENT ORDER ID
+                 ↓
+         DECISÃO EXPLÍCITA
+      ```
+    - É terminantemente proibido qualquer mecanismo de retry automático cego após exceção de submissão.
+  - **Máquina de Estados de Ciclo de Vida da Ordem (`OrderStatus`)**:
+    - Estados formais: `PREPARED`, `PENDING_SUBMISSION`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELED`, `REJECTED`, `UNKNOWN`.
+    - Antes de qualquer submissão ao adapter, o estado inicial `PENDING_SUBMISSION` é persistido obrigatoriamente no banco local com `correlation_id` e `client_order_id`.
+    - Idempotência local estrita: intenções duplicadas por `correlation_id` ou `client_order_id` são bloqueadas antes de qualquer nova submissão.
+  - **Reconciliação e Cancelamento Controlado**:
+    - `reconcile_order(client_order_id)`: consulta o adapter via `client_order_id` e atualiza deterministicamente o estado local.
+    - `cancel_order(client_order_id)`: exige que a ordem seja conhecida e esteja em estado cancelável (`SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`). Bloqueia o cancelamento se a ordem já estiver `FILLED`, `CANCELED` ou `REJECTED`. Se a ordem estiver em estado `UNKNOWN`, exige reconciliação prévia antes de qualquer tentativa de cancelamento (`AmbiguousExecutionError`).
+  - **Auditoria Local Segura (`LiveOrderStorage`)**:
+    - Persistência em SQLite append-only nas tabelas `live_orders` e `live_order_lifecycle`.
+    - Cada transição de estado registra `correlation_id`, `client_order_id`, `previous_status`, `new_status`, `timestamp` e `reason`.
+    - Proibição absoluta de armazenamento de API Keys, API Secrets ou senhas no banco, logs ou representações de string (`repr`).
+- **Motivo**: Estabelecer a infraestrutura do executor live mais defensiva, auditável e determinística possível, blindando o capital contra falhas de rede, ordens fantasmas e duplicações acidentais antes da realização da primeira micro-ordem assistida.
+
 
 
 

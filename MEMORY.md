@@ -1,7 +1,44 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.4A — Live Execution Engine / Dry-Run concluída no Notebook.
+FASE 8.4B — Guarded Live Order Executor Foundation concluída no Notebook.
+
+### Guarded Live Order Executor Foundation (FASE 8.4B)
+- Módulo `src/finbot/live_executor.py` implementado com a infraestrutura defensiva do executor LIVE para futuras operações na Binance Spot:
+  - *Entrada Estritamente Filtrada*: `GuardedLiveExecutionEngine` consome **exclusivamente** `ApprovedOrderIntent`. Qualquer tentativa de submeter `OrderIntent` cru, `RejectedOrderIntent` ou estruturas arbitrárias resulta em rejeição fail-closed imediata (`InvalidExecutionIntentError`).
+  - *Triple Live Arming (Tripla Trava de Armamento)*:
+    1. `trading_mode == 'live'`
+    2. `live_trading_acknowledged == True`
+    3. `live_execution_enabled == True` (Default mandatório: `False`)
+    - Se qualquer uma dessas condições for falsa, a execução é categoricamente bloqueada com `LiveExecutionArmingError`.
+  - *Micro-Order Cap Dedicado*:
+    - Configuração `live_micro_order_max_notional` (default conservador: 15.0 USDT) separada de `live_max_order_notional` (100 USDT).
+    - Se o valor nocional exceder o teto, a ordem é rejeitada com `MicroOrderCapExceededError`. É categoricamente proibido reduzir ou alterar o tamanho da ordem automaticamente.
+  - *Protocolo de Adapter e Injeção Obrigatória*:
+    - Protocolo `ExchangeOrderAdapter` desacopla completamente o motor da rede (`submit_order`, `cancel_order`, `fetch_order_status`).
+    - `FakeExchangeOrderAdapter` para testes unitários isolados, suportando injeção de preenchimentos, recusas e timeouts simulados.
+    - O executor exige injeção explícita de `ExchangeOrderAdapter` no construtor; não instancia implicitamente conexões de rede ou `BinancePrivateExchange`.
+  - *Trava Final da Fase e Inviolabilidade da Binance*:
+    - `BinanceOrderAdapter` protegido por trava explícita: `real_order_submission_enabled == False` (default mandatório).
+    - Qualquer tentativa de submeter ou cancelar ordem via `BinanceOrderAdapter` levanta imediatamente `RealOrderSubmissionBlockedError` antes de qualquer chamada HTTP / CCXT.
+    - `BinancePrivateExchange.create_order()` e `cancel_order()` continuam bloqueados levantando `LiveTradingBlockedError`.
+    - Prova arquitetural sentinela aprovada em `test_phase_8_4b_cannot_reach_real_binance_order_endpoint`.
+  - *Princípio Soberano de Falha Ambígua*:
+    - Axioma fundamental: `UNKNOWN != FAILED` e `TIMEOUT != SAFE TO RETRY`.
+    - Timeouts de rede após envio resultam no estado `UNKNOWN`.
+    - Proibição absoluta de retry automático cego. Reconciliação via `reconcile_order(client_order_id)` é obrigatória antes de qualquer decisão.
+  - *Máquina de Estados de Ciclo de Vida da Ordem (`OrderStatus`)*:
+    - Estados: `PREPARED`, `PENDING_SUBMISSION`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELED`, `REJECTED`, `UNKNOWN`.
+    - Estado `PENDING_SUBMISSION` persistido no SQLite antes da submissão com `correlation_id` e `client_order_id` gerado deterministicamente (`finbot_<sha256[:28]>`).
+    - Idempotência rigorosa impedindo submissões duplicadas.
+  - *Fluxo de Cancelamento Seguro*:
+    - `cancel_order(client_order_id)` exige ordem conhecida e status cancelável (`SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`).
+    - Bloqueia cancelamento de ordens já `FILLED` (`OrderNotCancelableError`) e exige reconciliação prévia caso esteja em `UNKNOWN` (`AmbiguousExecutionError`).
+  - *Auditoria Local Segura*:
+    - Persistência em SQLite append-only nas tabelas `live_orders` e `live_order_lifecycle` via `LiveOrderStorage`.
+    - Registro de cada transição de estado (`previous_status`, `new_status`, `timestamp`, `reason`) sem exposição de API Keys, secrets ou senhas.
+- 336 testes automatizados (324 passando e 12 skipped no `.venv` padrão; zero chamadas de rede). 22 novos testes em `tests/test_live_executor.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Live Execution Engine / Dry-Run (FASE 8.4A)
 - Módulo `src/finbot/execution.py` implementado com pipeline completo de execução simulada (Dry-Run), validando a geração de payload e idempotência sem chamadas à exchange:
@@ -204,11 +241,12 @@ not implemented
 - D031: Binance Private API Read-Only Operational Validation (Fase 8.2C).
 - D032: Live Execution Safety Foundation (Fase 8.3).
 - D033: Dry-Run Live Execution Engine (Fase 8.4A).
+- D034: Guarded Live Order Execution Foundation (Fase 8.4B).
 
 ## Último checkpoint
-FASE 8.4A — Live Execution Engine / Dry-Run: Módulo `src/finbot/execution.py` implementado com pipeline completo em modo DRY-RUN e validado com 25 testes dedicados sem rede (totalizando 314 testes no projeto). Separação conceitual estrita: APPROVED ORDER INTENT != REAL ORDER e DRY_RUN != PAPER TRADING (sem preenchimento financeiro, sem simulação patrimonial). DryRunExecutionEngine aceita exclusivamente ApprovedOrderIntent sob o modo DRY_RUN (LIVE bloqueado via LiveExecutionBlockedError). Geração determinística de clientOrderId (finbot_<sha256[:28]>) em conformidade com o limite de 36 caracteres e formato da Binance Spot. Persistência e idempotência com DryRunStorage em SQLite (dry_run_orders) impedindo execuções repetidas (DUPLICATE_INTENT) mesmo após reinicialização. Construtor build_order_payload produzindo payload canônico com preservação de precisão decimal. Pipeline run_dry_run_pipeline garante que se o LiveSafetyGate rejeitar, o motor de execução nunca é chamado. Inviolabilidade de trading real: create_order e cancel_order continuam bloqueados levantando LiveTradingBlockedError na BinancePrivateExchange. Teste sentinela test_phase_8_4a_has_zero_live_order_capability aprovado. Paper Soak de 72h no PC Forte intocado.
+FASE 8.4B — Guarded Live Order Executor Foundation: Módulo `src/finbot/live_executor.py` implementado com arquitetura de execução live defensiva e validado com 22 testes unitários e de integração sem chamadas de rede (totalizando 336 testes no projeto). GuardedLiveExecutionEngine aceita exclusivamente ApprovedOrderIntent com fail-closed para qualquer intenção não aprovada. Triple Live Arming requer três condições simultâneas: trading_mode == 'live', live_trading_acknowledged == True e live_execution_enabled == True (default False). Micro-Order Cap operacional com live_micro_order_max_notional (default 15.0 USDT) com rejeição imediata se excedido (MicroOrderCapExceededError) e proibição de redução automática de lote. Protocolo ExchangeOrderAdapter com injeção explícita de dependência (FakeExchangeOrderAdapter para testes e BinanceOrderAdapter para produção). Trava final da fase: BinanceOrderAdapter bloqueado por real_order_submission_enabled == False levantando RealOrderSubmissionBlockedError antes de qualquer chamada HTTP/CCXT. BinancePrivateExchange.create_order() e cancel_order() continuam bloqueados levantando LiveTradingBlockedError. Teste sentinela test_phase_8_4b_cannot_reach_real_binance_order_endpoint aprovado. Idempotência com persistência mandatória de PENDING_SUBMISSION com correlation_id e client_order_id antes da submissão. Máquina de estados completa (PREPARED, PENDING_SUBMISSION, SUBMITTED, ACKNOWLEDGED, PARTIALLY_FILLED, FILLED, CANCEL_PENDING, CANCELED, REJECTED, UNKNOWN). Regra Mandatória de Falha Ambígua: UNKNOWN != FAILED e TIMEOUT != SAFE TO RETRY (timeouts de rede resultam em UNKNOWN sem retry automático, exigindo reconcile_order). Cancelamento seguro cancel_order bloqueando ordens FILLED ou UNKNOWN. Auditoria local append-only via LiveOrderStorage nas tabelas live_orders e live_order_lifecycle sem exposição de credenciais. Paper Soak de 72h no PC Forte intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.4B — Assisted Binance Micro-Order Validation (preparação de submissão controlada de micro-ordens reais com teto de 10-15 USDT, rastreamento de ciclo de vida de ordens, idempotência e validação assistida com o operador no PC Forte).
+FASE 8.4C — Assisted Binance Micro-Order Validation (execução supervisionada e assistida da primeira micro-ordem real no par BTC/USDT na Binance Spot no PC Forte, com consulta aos filtros de mercado atuais, liberação assistida das travas exclusivamente para uma única micro-ordem, validação de ciclo de vida completo e preservação contínua do Paper Soak Test).
 
 

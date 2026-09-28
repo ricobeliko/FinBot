@@ -387,13 +387,33 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Adição de 25 testes unitários e de integração em `tests/test_execution.py` (totalizando 314 testes no projeto)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.4B — Assisted Binance Micro-Order Validation (Pendente)
-- Esta fase preparará a orquestração segura de submissão de micro-ordens reais com salvaguardas adicionais:
-  - Transição de `create_order` para suporte a micro-ordens com teto reduzido (ex: 10 a 15 USDT de micro-teste assistido)
-  - Rastreamento determinístico do ciclo de vida de ordens na exchange (`NEW`, `PARTIALLY_FILLED`, `FILLED`, `CANCELED`, `REJECTED`, `EXPIRED`)
-  - Tratamento de timeouts de rede e prevenção de ordens duplicadas via `clientOrderId`
-  - Reconciliação imediata da posição interna com a Binance após confirmação de fill
-  - Manutenção do bloqueio até a autorização explícita do operador e testes manuais assistidos no PC Forte
+#### FASE 8.4B — Guarded Live Order Executor Foundation (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/live_executor.py` com a arquitetura defensiva do executor live
+- [x] Entrada exclusiva para `ApprovedOrderIntent` com rejeição fail-closed de `OrderIntent` cru, `RejectedOrderIntent` ou tipos inválidos (`InvalidExecutionIntentError`)
+- [x] Triple Live Arming com três travas independentes e cumulativas: `trading_mode == 'live'`, `live_trading_acknowledged == True` e `live_execution_enabled == True` (default `False`, erro `LiveExecutionArmingError`)
+- [x] Micro-Order Cap com teto dedicado de homologação `live_micro_order_max_notional` (default conservador: 15.0 USDT) com rejeição imediata (`MicroOrderCapExceededError`) e proibição de redução automática da ordem
+- [x] Protocolo abstrato `ExchangeOrderAdapter` desacoplando o motor da rede e exigindo injeção explícita de dependência no construtor de `GuardedLiveExecutionEngine` (sem criação automática de `BinancePrivateExchange`)
+- [x] Implementação de `FakeExchangeOrderAdapter` para testes unitários isolados com simulação de preenchimentos, recusas e timeouts
+- [x] Implementação de `BinanceOrderAdapter` com barreira final de segurança: bloqueio obrigatório por `real_order_submission_enabled == False` (default) levantando `RealOrderSubmissionBlockedError` antes de qualquer chamada ao CCXT
+- [x] Inviolabilidade contínua de `BinancePrivateExchange.create_order()` e `cancel_order()` bloqueados com `LiveTradingBlockedError`
+- [x] Teste sentinela `test_phase_8_4b_cannot_reach_real_binance_order_endpoint` aprovado (comprova que mesmo com todas as flags de LIVE ativadas, a barreira final impede o envio)
+- [x] Idempotência com persistência mandatória de `PENDING_SUBMISSION` com `correlation_id` e `client_order_id` antes do envio, prevenindo submissões duplicadas em reinicializações ou retries
+- [x] Máquina de estados completa de ciclo de vida: `PREPARED`, `PENDING_SUBMISSION`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `FILLED`, `CANCEL_PENDING`, `CANCELED`, `REJECTED`, `UNKNOWN`
+- [x] Regra Mandatória de Falha Ambígua: `UNKNOWN != FAILED` e `TIMEOUT != SAFE TO RETRY` (timeouts de rede resultam estritamente em `UNKNOWN`, proibindo retry automático e exigindo reconciliação)
+- [x] Implementação de `reconcile_order(client_order_id)` para consulta do estado da ordem na exchange via `clientOrderId`
+- [x] Fluxo de cancelamento seguro `cancel_order(client_order_id)`: exige ordem conhecida, status cancelável (`SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`), bloqueia cancelamento de ordens `FILLED` (`OrderNotCancelableError`) e exige reconciliação prévia se `UNKNOWN` (`AmbiguousExecutionError`)
+- [x] Auditoria local append-only em SQLite (`LiveOrderStorage`) nas tabelas `live_orders` e `live_order_lifecycle` com rastreamento completo de transições de estado e motivo, sem expor chaves ou credenciais
+- [x] Adição de 22 testes unitários e de integração em `tests/test_live_executor.py` (totalizando 336 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+#### FASE 8.4C — Assisted Binance Micro-Order Validation (Pendente)
+- Esta fase executará a primeira micro-operação real controlada e assistida na Binance Spot com o operador:
+  - Consulta aos filtros atuais do par BTC/USDT na Binance Spot no PC Forte para determinação exata do valor de teste dentro dos limites de lote e notional
+  - Liberação assistida e supervisionada das travas de submissão no PC Forte exclusivamente para uma única micro-ordem
+  - Validação do fluxo completo: Submissão -> ACK -> Fill -> Reconciliação de saldo real
+  - Validação assistida do fluxo de cancelamento de micro-ordem limite longe do book
+  - Preservação do Paper Soak Test no PC Forte
 
 ---
 
