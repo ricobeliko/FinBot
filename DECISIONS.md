@@ -624,5 +624,45 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Prova arquitetural sentinela formalizada no teste `test_phase_8_3_cannot_submit_real_orders`.
 - **Motivo**: Construir a barreira de proteção de execução mais rigorosa e determinística possível, garantindo que quando o módulo de envio de ordens for implementado em fases futuras, nenhuma ordem inválida, não-autorizada ou financeiramente excessiva possa atingir o livro de ofertas da exchange.
 
+---
+
+### D033 — Dry-Run Live Execution Engine (Fase 8.4A)
+- **Status**: Aceito
+- **Data**: FASE 8.4A
+- **Contexto**: Com a fundação de segurança preventiva estabelecida na Fase 8.3 (`MarketFilterGuard`, `OrderIntent`, `LiveSafetyGate`, `StateReconciler`), o FinBot necessita de um pipeline de execução completo para validação operacional sem enviar ordens reais à Binance Spot. É crucial diferenciar os papéis e assegurar que nenhum efeito financeiro real ocorra nesta fase.
+- **Decisão**:
+  - **Separação Conceitual Fundamental**:
+    - **`APPROVED ORDER INTENT != REAL ORDER`**: A aprovação emitida pelo `LiveSafetyGate` atesta apenas conformidade estática com regras de risco, filtros de mercado e saldo; ela **não** constitui nem autoriza envio real à exchange.
+    - **`DRY_RUN != PAPER TRADING`**: O *Paper Trading* simula dinamicamente a evolução patrimonial e posições abertas ao longo do tempo (ciclos recorrentes de 1m). O *Dry-Run Execution Engine* valida estritamente a integridade do pipeline técnico de submissão (serialização canônica de payload, idempotência local, limites e precisão da exchange) **sem preenchimento financeiro (fill) e sem mutação patrimonial**.
+  - **Módulo Isolado de Execução (`src/finbot/execution.py`)**:
+    - `DryRunExecutionEngine`: componente dedicado que consome **exclusivamente** `ApprovedOrderIntent`. Qualquer tentativa de submeter `OrderIntent` cru, `RejectedOrderIntent` ou estruturas arbitrárias resulta em rejeição fail-closed imediata (`InvalidExecutionIntentError`).
+  - **Modos de Execução (`ExecutionMode`) e Bloqueio de LIVE**:
+    - Enum explícito: `ExecutionMode.DRY_RUN` e `ExecutionMode.LIVE`.
+    - O modo `ExecutionMode.LIVE` é expressamente bloqueado nesta fase, levantando `LiveExecutionBlockedError`.
+  - **Estrutura Imutável de Resultado (`DryRunOrderResult`)**:
+    - Campos canônicos: `correlation_id`, `client_order_id`, `symbol`, `side`, `order_type`, `quantity`, `price`, `notional`, `status`, `created_at`, `safety_reason`, `execution_mode`, `order_payload`.
+    - `status` utiliza valores semanticamente explícitos: `SIMULATED_ACCEPTED` e `DUPLICATE_INTENT`.
+    - O status `FILLED` é categoricamente proibido em modo Dry-Run via validação no construtor.
+  - **Geração Determinística de `clientOrderId` (`generate_client_order_id`)**:
+    - Derivado deterministicamente a partir do `correlation_id` via hash SHA-256 truncado: `f"finbot_{sha256(correlation_id)[:28]}"` (35 caracteres).
+    - Obedece estritamente às especificações da Binance Spot (`length <= 36`, caracteres permitidos `[a-zA-Z0-9-_]`).
+    - Mesma correlação gera o mesmo ID; correlações diferentes geram IDs distintos; não expõe dados sensíveis.
+  - **Idempotência e Persistência Local (`DryRunStorage`)**:
+    - Persistência em tabela SQLite `dry_run_orders` (`correlation_id` como PRIMARY KEY).
+    - Verificação prévia antes de qualquer processamento: intenções duplicadas retornam `DryRunOrderResult` com status `DUPLICATE_INTENT`, sem gerar segunda execução lógica.
+    - Persistência sobrevive a reinicializações de processo e não armazena credenciais ou segredos.
+  - **Construtor de Payload Canônico (`build_order_payload`)**:
+    - Função pura que produz a estrutura idêntica à que futuramente será entregue ao adapter CCXT (`symbol`, `type`, `side`, `amount`, `price`, `params: {"clientOrderId": ...}`).
+    - Preserva precisão decimal sem float intermediário inseguro.
+    - Não conhece nem acessa `CredentialProvider`, API Keys ou rede.
+  - **Orquestrador de Pipeline (`run_dry_run_pipeline`)**:
+    - Fluxo: `OrderIntent -> LiveSafetyGate -> ApprovedOrderIntent -> DryRunExecutionEngine`.
+    - Se o gate rejeitar: o engine **nunca** é invocado.
+  - **Inviolabilidade de Trading Real**:
+    - `BinancePrivateExchange.create_order()` e `cancel_order()` continuam bloqueados levantando `LiveTradingBlockedError`.
+    - Zero chamadas HTTP a endpoints de negociação; validação comprovada pelo teste sentinela `test_phase_8_4a_has_zero_live_order_capability`.
+- **Motivo**: Construir e auditar integralmente o mecanismo técnico de submissão de ordens antes de qualquer exposição real a capital ou livro de ofertas, provando determinismo, idempotência e conformidade regulatória da exchange.
+
+
 
 

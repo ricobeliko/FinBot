@@ -370,14 +370,30 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Adição de 22 testes unitários e de integração em `tests/test_live_safety.py` (totalizando 289 testes no projeto)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.4 — Live Order Execution Engine (Dry-Run / Micro-Orders) (Pendente)
+#### FASE 8.4A — Live Execution Engine / Dry-Run (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/execution.py` com o motor de execução em modo Dry-Run
+- [x] Princípio Soberano: `APPROVED ORDER INTENT != REAL ORDER` e `DRY_RUN != PAPER TRADING`
+- [x] Implementação de `DryRunExecutionEngine` consumindo exclusivamente `ApprovedOrderIntent` (fail-closed para intenções não aprovadas)
+- [x] Modos de execução com enum `ExecutionMode`: obrigatoriedade de `DRY_RUN` e bloqueio estrito de `LIVE` via `LiveExecutionBlockedError`
+- [x] Estrutura imutável `DryRunOrderResult` com status explícitos (`SIMULATED_ACCEPTED`, `DUPLICATE_INTENT`) e proibição de status `FILLED`
+- [x] Geração determinística de `clientOrderId` (`generate_client_order_id`) compatível com o limite de 36 caracteres e formato da Binance Spot (`finbot_<sha256[:28]>`)
+- [x] Mecanismo de idempotência em SQLite (`DryRunStorage` na tabela `dry_run_orders`), garantindo que intenções repetidas não gerem segunda execução
+- [x] Persistência auditável entre reinicializações do processo, sem gravação de credenciais, chaves ou senhas
+- [x] Função pura `build_order_payload` construindo o payload canônico para o adapter da exchange com preservação rigorosa de precisão
+- [x] Orquestrador de pipeline `run_dry_run_pipeline`: se o `LiveSafetyGate` rejeitar, o `DryRunExecutionEngine` nunca é invocado
+- [x] Inviolabilidade de trading real: `create_order` e `cancel_order` permanecem levantando `LiveTradingBlockedError` na `BinancePrivateExchange`
+- [x] Teste sentinela `test_phase_8_4a_has_zero_live_order_capability` aprovado
+- [x] Adição de 25 testes unitários e de integração em `tests/test_execution.py` (totalizando 314 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+#### FASE 8.4B — Assisted Binance Micro-Order Validation (Pendente)
 - Esta fase preparará a orquestração segura de submissão de micro-ordens reais com salvaguardas adicionais:
-  - Implementação de executor de ordens com modo Dry-Run (simulação controlada com validação completa dos endpoints)
-  - Transição de `create_order` para suporte a micro-ordens com teto reduzido (ex: 10 USDT de micro-teste)
-  - Rastreamento de ciclo de vida de ordem (NEW, PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, EXPIRED)
-  - Tratamento determinístico de timeouts, falhas de rede transitórias e idempotência via `clientOrderId`
-  - Reconciliação imediata de posições locais após confirmação de fill
-  - Manutenção do bloqueio até a autorização explícita do operador e testes manuais controlados no PC Forte
+  - Transição de `create_order` para suporte a micro-ordens com teto reduzido (ex: 10 a 15 USDT de micro-teste assistido)
+  - Rastreamento determinístico do ciclo de vida de ordens na exchange (`NEW`, `PARTIALLY_FILLED`, `FILLED`, `CANCELED`, `REJECTED`, `EXPIRED`)
+  - Tratamento de timeouts de rede e prevenção de ordens duplicadas via `clientOrderId`
+  - Reconciliação imediata da posição interna com a Binance após confirmação de fill
+  - Manutenção do bloqueio até a autorização explícita do operador e testes manuais assistidos no PC Forte
 
 ---
 

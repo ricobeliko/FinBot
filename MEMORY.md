@@ -1,7 +1,23 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.3 — Live Execution Safety Foundation concluída no Notebook.
+FASE 8.4A — Live Execution Engine / Dry-Run concluída no Notebook.
+
+### Live Execution Engine / Dry-Run (FASE 8.4A)
+- Módulo `src/finbot/execution.py` implementado com pipeline completo de execução simulada (Dry-Run), validando a geração de payload e idempotência sem chamadas à exchange:
+  - *Separação Conceitual Obrigatória*:
+    - **`APPROVED ORDER INTENT != REAL ORDER`**: Uma intenção aprovada atesta apenas a conformidade teórica com regras e limites; a execução real continua inexistente e categoricamente bloqueada nesta fase.
+    - **`DRY_RUN != PAPER TRADING`**: O *Paper Trading* simula dinamicamente a evolução patrimonial e posições abertas ao longo do tempo (ciclos de 1m). O *Dry-Run Execution Engine* valida estritamente a integridade do pipeline técnico de submissão (serialização de payload, idempotência local, limites e precisão da exchange) **sem preenchimento financeiro (fill) e sem mutação patrimonial**.
+  - *DryRunExecutionEngine*: Consome **exclusivamente** `ApprovedOrderIntent`. Qualquer tentativa de submeter `OrderIntent` cru, `RejectedOrderIntent` ou estruturas arbitrárias resulta em rejeição fail-closed imediata (`InvalidExecutionIntentError`).
+  - *Modos de Execução*: Enum `ExecutionMode` suporta exclusivamente `DRY_RUN`. Tentativas de configurar ou executar em `LIVE` disparam `LiveExecutionBlockedError`.
+  - *DryRunOrderResult Imutável*: Dataclass frozen contendo `correlation_id`, `client_order_id`, `symbol`, `side`, `order_type`, `quantity`, `price`, `notional`, `status`, `created_at`, `safety_reason`, `execution_mode`, `order_payload`. Status explícitos `SIMULATED_ACCEPTED` e `DUPLICATE_INTENT`. O status `FILLED` é expressamente proibido no construtor.
+  - *Client Order ID Determinístico*: Função `generate_client_order_id` gera identificadores no formato `finbot_<sha256[:28]>` (35 caracteres), em conformidade estrita com o limite de 36 caracteres e formato da Binance Spot (`[a-zA-Z0-9-_]`), sem segredos nem quebra de idempotência.
+  - *Idempotência e Persistência Local*: Classe `DryRunStorage` com persistência append-only em SQLite (`dry_run_orders`), garantindo que intenções repetidas retornem `DUPLICATE_INTENT` sem gerar segunda execução lógica, mesmo após reinicializações.
+  - *Order Payload Builder*: Função pura `build_order_payload` constrói o payload canônico para o adapter CCXT preservando precisão decimal, sem dependência de credenciais ou rede.
+  - *Orquestrador de Pipeline*: `run_dry_run_pipeline` garante que se o `LiveSafetyGate` rejeitar, o `DryRunExecutionEngine` nunca é chamado.
+  - *Inviolabilidade de Trading Real*: `create_order` e `cancel_order` permanecem bloqueados levantando `LiveTradingBlockedError` em `BinancePrivateExchange`. Prova arquitetural sentinela aprovada em `test_phase_8_4a_has_zero_live_order_capability`.
+- 314 testes automatizados (302 passando e 12 skipped no `.venv` padrão; zero chamadas de rede). 25 novos testes em `tests/test_execution.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Live Execution Safety Foundation (FASE 8.3)
 - Módulo `src/finbot/live_safety.py` implementado com fundação defensiva preliminar antes de qualquer futura execução de ordens Binance Spot:
@@ -187,10 +203,12 @@ not implemented
 - D030: Secure Local Credential Enrollment GUI (Fase 8.2B).
 - D031: Binance Private API Read-Only Operational Validation (Fase 8.2C).
 - D032: Live Execution Safety Foundation (Fase 8.3).
+- D033: Dry-Run Live Execution Engine (Fase 8.4A).
 
 ## Último checkpoint
-FASE 8.3 — Live Execution Safety Foundation: Módulo defensivo preliminar `src/finbot/live_safety.py` implementado e validado com 22 testes dedicados sem rede (totalizando 289 testes no projeto). Separação estrita SIGNAL -> ORDER INTENT -> RISK ENGINE -> MARKET FILTER GUARD -> STATE RECONCILIATION -> LIVE SAFETY GATE -> APPROVED INTENT. Regra soberana: APPROVED INTENT != EXECUTED ORDER. Modelos OrderIntent e AccountStateSnapshot imutáveis com validações numéricas estritas contra NaN, Inf e campos vazios. MarketFilterGuard com sanitização de lote e preço via Decimal sem inflar ordens. StateReconciler passivo validando saldos necessários sem autocorreções ou vendas. Soberania irrestrita do Risk Engine preservada sem bypass. Hard Live Limit (live_max_order_notional=100 USDT) e autorização explícita (live_trading_acknowledged=False). Auditoria append-only segura em SQLite sem secrets. Comprovado formalmente que can_trade/can_withdraw não representam permissões da API Key e não devem ser usados como autorizadores. Teste sentinela test_phase_8_3_cannot_submit_real_orders aprovado: create_order e cancel_order continuam bloqueados com LiveTradingBlockedError. Paper Soak de 72h no PC Forte intocado.
+FASE 8.4A — Live Execution Engine / Dry-Run: Módulo `src/finbot/execution.py` implementado com pipeline completo em modo DRY-RUN e validado com 25 testes dedicados sem rede (totalizando 314 testes no projeto). Separação conceitual estrita: APPROVED ORDER INTENT != REAL ORDER e DRY_RUN != PAPER TRADING (sem preenchimento financeiro, sem simulação patrimonial). DryRunExecutionEngine aceita exclusivamente ApprovedOrderIntent sob o modo DRY_RUN (LIVE bloqueado via LiveExecutionBlockedError). Geração determinística de clientOrderId (finbot_<sha256[:28]>) em conformidade com o limite de 36 caracteres e formato da Binance Spot. Persistência e idempotência com DryRunStorage em SQLite (dry_run_orders) impedindo execuções repetidas (DUPLICATE_INTENT) mesmo após reinicialização. Construtor build_order_payload produzindo payload canônico com preservação de precisão decimal. Pipeline run_dry_run_pipeline garante que se o LiveSafetyGate rejeitar, o motor de execução nunca é chamado. Inviolabilidade de trading real: create_order e cancel_order continuam bloqueados levantando LiveTradingBlockedError na BinancePrivateExchange. Teste sentinela test_phase_8_4a_has_zero_live_order_capability aprovado. Paper Soak de 72h no PC Forte intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.4 — Live Order Execution Engine (Dry-Run / Micro-Orders) (orquestração segura de submissão de micro-ordens reais com salvaguardas adicionais, suporte a modo Dry-Run e idempotência).
+FASE 8.4B — Assisted Binance Micro-Order Validation (preparação de submissão controlada de micro-ordens reais com teto de 10-15 USDT, rastreamento de ciclo de vida de ordens, idempotência e validação assistida com o operador no PC Forte).
+
 
