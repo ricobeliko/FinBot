@@ -304,6 +304,10 @@ class FakeCredentialProvider(CredentialProvider):
             raise ValueError("API Key e API Secret não podem ser vazios.")
         self._credentials = BinanceCredentials(api_key=clean_key, api_secret=clean_secret)
 
+    def set_binance_credentials(self, api_key: str, api_secret: str) -> None:
+        """Compatibilidade com a interface do WindowsCredentialProvider."""
+        self.set_credentials(api_key, api_secret)
+
     def clear(self) -> None:
         self._credentials = None
 
@@ -396,8 +400,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "action",
-        choices=["setup", "status", "remove"],
-        help="Ação a ser executada: setup (cadastrar), status (verificar), remove (remover)",
+        choices=["setup", "status", "remove", "gui"],
+        help="Ação a ser executada: setup (cadastrar CLI), status (verificar), remove (remover), gui (interface gráfica)",
     )
     parser.add_argument(
         "--target",
@@ -414,6 +418,9 @@ def main(argv: list[str] | None = None) -> int:
         return cli_status(provider)
     elif args.action == "remove":
         return cli_remove(provider)
+    elif args.action == "gui":
+        from finbot.credentials_gui import run_gui
+        return run_gui(provider=provider)
     return 0
 
 

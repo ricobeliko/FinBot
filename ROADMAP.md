@@ -324,12 +324,25 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Adição de 18 testes unitários de segurança em `tests/test_credentials.py` (totalizando 250 testes no projeto)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.2B — Cadastro de Credenciais Reais e Teste Read-Only Live (Pendente)
-- Cadastro interativo da API Key real via `python -m finbot.credentials setup` no PC Forte
+#### FASE 8.2B — GUI Local Segura para Cadastro das Credenciais Binance (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação de interface gráfica local nativa via Tkinter (`src/finbot/credentials_gui.py`) para cadastro e substituição segura de credenciais Binance
+- [x] Ocultação visual do API Secret com máscara padrão (`show="*"`) e controle opcional de alternância ("Mostrar API Secret")
+- [x] Validação preventiva contra colagem truncada (prevenção contra `SECRET_LEN=2` ocorrido no terminal) e quebras de linha
+- [x] Armazenamento exclusivo no Windows Credential Manager via `WindowsCredentialProvider` (target `FinBot/Binance/Production`)
+- [x] Isolamento estrito de rede: salvar credenciais não realiza chamadas à Binance (cadastro e teste permanecem separados)
+- [x] Proibição total de persistência em arquivos (`.env`, `.json`, `.yaml`, SQLite, CSV) e de segredos em logs, terminal ou exceções
+- [x] Limpeza imediata dos campos de entrada em memória após o salvamento bem-sucedido
+- [x] CLI de invocação dedicada (`python -m finbot.credentials_gui`) e integração da ação `gui` na CLI existente (`python -m finbot.credentials gui`)
+- [x] Adição de 16 testes unitários em `tests/test_credentials_gui.py` (totalizando 267 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+#### FASE 8.2C — Cadastro de Credenciais Reais no PC Forte e Teste Read-Only Live (Pendente)
+- Cadastro interativo da API Key real via GUI segura (`python -m finbot.credentials_gui`) no PC Forte
 - Execução controlada de teste READ-ONLY com chaves reais (sem ordens, sem escrita)
 - Verificação de status e reconciliação de saldos da conta
 
-#### FASE 8.2C — Execução de Ordens e Gestão de Posição Live (Pendente)
+#### FASE 8.2D — Execução de Ordens e Gestão de Posição Live (Pendente)
 - Conexão com API autenticada de exchange para envio e cancelamento de ordens
 - Uso exclusivo de chaves de API sem permissão de saque (*no withdrawal*)
 - Modo Live bloqueado por padrão; liberação com dupla confirmação operacional

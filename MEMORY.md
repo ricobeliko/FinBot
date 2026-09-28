@@ -1,7 +1,18 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.2A — Secure Windows Credential Storage concluída no Notebook.
+FASE 8.2B — GUI Local Segura para Cadastro das Credenciais Binance concluída no Notebook.
+
+### GUI Local Segura para Cadastro de Credenciais (FASE 8.2B)
+- Módulo `src/finbot/credentials_gui.py` implementado com Tkinter nativo (Python Standard Library, zero novas dependências):
+  - *Interface Gráfica Local*: Janela "FinBot — Binance Credentials" simples, local e segura, criada especificamente para eliminar erros de colagem e digitação oculta observados no terminal via `getpass` (incidente real no PC Forte onde `SECRET_LEN=2` gerou erro -1022 na Binance).
+  - *Máscara Visual Estrita*: API Secret mascarado por padrão com `show="*"`, com alternância visual controlada ("Mostrar API Secret") para conferência opcional do operador antes do salvamento.
+  - *Validação Preventiva Segura*: Rejeição de campos vazios, espaços em branco puros, quebras de linha e salvaguarda contra chaves/segredos truncados (`len < 16`), impedindo repetição do erro `SECRET_LEN=2` sem assumir tamanhos rígidos arbitrários.
+  - *Armazenamento Exclusivo no Windows Credential Manager*: Integração 100% direta com `WindowsCredentialProvider` (target canônico `FinBot/Binance/Production`).
+  - *Isolamento Estrito de Rede e Arquivos*: O ato de salvar na GUI não realiza nenhuma chamada à Binance (cadastro e teste permanecem separados). Proibição total de gravação em `.env`, `.json`, `.yaml`, SQLite, CSV ou logs.
+  - *Limpeza Imediata em Memória*: Campos de entrada e variáveis de controle limpos imediatamente na GUI após salvamento bem-sucedido.
+  - *CLIs de Invocação*: Ponto de entrada dedicado `python -m finbot.credentials_gui` e ação integrada `python -m finbot.credentials gui`. Comandos existentes `status`, `setup` e `remove` continuam funcionando integralmente.
+- 267 testes automatizados (255 passando e 12 skipped no `.venv` padrão; 267 passando 100% no `.venv-research`). 16 novos testes em `tests/test_credentials_gui.py`.
 
 ### Secure Windows Credential Storage (FASE 8.2A)
 - Módulo `src/finbot/credentials.py` implementado com arquitetura de provedores de credenciais e proteção estrita contra vazamento:
@@ -12,7 +23,6 @@ FASE 8.2A — Secure Windows Credential Storage concluída no Notebook.
   - *Princípio Fail-Closed*: Se as credenciais estiverem ausentes no Windows Credential Manager, lança `CredentialsMissingError` imediatamente, sem chamada de rede, sem fallback para paper e sem tentativa de ordens.
   - *CLI Administrativa Segura*: Comandos `python -m finbot.credentials` (`setup` com senha oculta via `getpass`, `status` sem expor segredos, `remove` com confirmação explícita).
   - *Preservação do Modo Paper*: O modo `paper` (`TRADING_MODE=paper`) permanece 100% desacoplado e não consulta o Windows Credential Manager.
-- 250 testes automatizados (238 passando e 12 skipped no `.venv` padrão; 250 passando 100% no `.venv-research`).
 
 ### Binance Private Integration Foundation (Read-Only Live Boundary)
 - Módulo isolado `src/finbot/private_exchange.py` adaptado para obter credenciais exclusivamente via `CredentialProvider`.
@@ -137,9 +147,10 @@ not implemented
 - D027: Adaptive Paper Safety Architecture (Fase 7.9I).
 - D028: Binance Private Integration Foundation and Read-Only Live Boundary (Fase 8.1).
 - D029: Windows Credential Manager for Binance Secrets (Fase 8.2A).
+- D030: Secure Local Credential Enrollment GUI (Fase 8.2B).
 
 ## Último checkpoint
-FASE 8.2A — Secure Windows Credential Storage: Implementação do módulo `src/finbot/credentials.py` com `WindowsCredentialProvider` (nativo via `ctypes` e `Advapi32.dll`), `FakeCredentialProvider` para testes e CLI administrativa segura (`setup`, `status`, `remove`). `BinancePrivateExchange` adaptado para consumir credenciais exclusivamente via `CredentialProvider` com semântica fail-closed. Credenciais removidas de `get_config()`, `.env` e variáveis de ambiente. Segredos mascarados via `BinanceCredentials(repr=False)` e higienização contínua de logs. 18 novos testes unitários adicionados em `tests/test_credentials.py` e suíte de private exchange adaptada (totalizando 250 testes automatizados: 238 passando e 12 skipped no ambiente padrão; 250 passando 100% no ambiente research). Nenhuma chave real cadastrada nesta fase. Paper Soak Test de 72h no PC Forte 100% preservado e intocado.
+FASE 8.2B — GUI Local Segura para Cadastro das Credenciais Binance: Criação do módulo `src/finbot/credentials_gui.py` utilizando Tkinter nativo (sem dependências externas), com visual limpo, máscara padrão no API Secret (`show="*"`), alternância opcional "Mostrar API Secret", validação preventiva contra entradas vazias e colagens truncadas (`len < 16`, prevenindo o caso real de `SECRET_LEN=2` ocorrido no terminal do PC Forte). Gravação exclusiva no Windows Credential Manager via `WindowsCredentialProvider` (target `FinBot/Binance/Production`). Isolamento estrito de rede (zero chamadas à exchange no cadastro), zero persistência em arquivos, zero exposição de credenciais em logs ou diálogos e limpeza imediata de variáveis em memória na GUI após salvamento. CLI dedicada `python -m finbot.credentials_gui` e integração da ação `gui` na CLI existente `python -m finbot.credentials gui`. 16 novos testes unitários adicionados em `tests/test_credentials_gui.py` (totalizando 267 testes no projeto: 255 passando e 12 skipped no ambiente padrão; 267 passando 100% no ambiente research). Paper Soak Test de 72h no PC Forte 100% preservado e intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.2B — Cadastro de Credenciais Reais e Teste Read-Only Live (após término do Soak Test e validação operacional).
+FASE 8.2C — Cadastro de Credenciais Reais no PC Forte e Teste Read-Only Live (cadastro da API Key/Secret via GUI segura e execução de teste read-only sem ordens).

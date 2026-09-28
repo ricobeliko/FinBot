@@ -503,3 +503,38 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
   - **CLI Administrativa Segura**:
     - Comandos interativos auditáveis: `python -m finbot.credentials setup` (com entrada de segredo oculta via `getpass`), `status` (sem exibição de valores) e `remove` (com confirmação explícita obrigatória).
 - **Motivo**: Atender aos mais rigorosos padrões institucionais de segurança para algoritmos de negociação, eliminando riscos de exfiltração acidental de chaves via Git, cópias de arquivos ou despejos de memória e logs.
+
+---
+
+### D030 — Secure Local Credential Enrollment GUI (Fase 8.2B)
+- **Status**: Aceito
+- **Data**: FASE 8.2B
+- **Contexto**: No ambiente operacional do PC Forte, o cadastro via terminal com entrada oculta (`python -m finbot.credentials setup` com `getpass`) causou truncamento acidental na colagem do segredo HMAC (`KEY_LEN = 64`, `SECRET_LEN = 2`), resultando no erro Binance code -1022 ("Signature for this request is not valid."). Havia necessidade de fornecer uma interface gráfica local, simples e segura para permitir ao operador colar, visualizar (opcionalmente) e cadastrar a API Key e o API Secret com total confiabilidade, sem depender de entrada cega no terminal e sem introduzir novas dependências externas.
+- **Decisão**:
+  - **Interface Gráfica Local Simples (Tkinter)**:
+    - Implementação de `src/finbot/credentials_gui.py` utilizando exclusivamente o pacote `tkinter` da Standard Library do Python (zero novas dependências).
+    - A GUI existe **exclusivamente para o cadastro/enrollment local seguro de credenciais** e **NÃO** constitui painel de controle operacional ou de trading.
+  - **Máscara Visual Estrita e Alternância Controlada**:
+    - O campo de API Secret é renderizado mascarado por padrão com `show="*"`.
+    - Checkbox "Mostrar API Secret" permite ao operador alternar a visibilidade sob demanda para conferência visual prévia à confirmação.
+  - **Validação Preventiva sem Premissas Arbitrárias**:
+    - Rejeição de campos vazios, espaços puros e quebras de linha (`\n`, `\r`).
+    - Verificação de comprimento mínimo (`len < 16`), impedindo categoricamente a gravação de segredos truncados (como o caso real `SECRET_LEN=2`) sem codificar comprimentos rígidos arbitrários da Binance.
+    - Aplicação de `strip()` estritamente nas extremidades.
+  - **Armazenamento Exclusivo no Windows Credential Manager**:
+    - Integração direta com o `WindowsCredentialProvider` já existente sob o target canônico `FinBot/Binance/Production`.
+    - Proibição absoluta de persistência em arquivos (`.env`, `.json`, `.yaml`, SQLite, CSV) ou variáveis de ambiente.
+  - **Proteção Total contra Vazamento em Logs e Diálogos**:
+    - API Key e API Secret nunca são impressos, nunca são registrados em logs e nunca são exibidos em exceções ou caixas de mensagem (`messagebox`).
+    - Mensagem de sucesso padronizada e descritiva: `"Credenciais Binance armazenadas com segurança."`.
+  - **Limpeza Imediata em Memória**:
+    - Após o salvamento bem-sucedido ou cancelamento, os campos de entrada e variáveis de controle da GUI são limpos imediatamente da memória.
+  - **Desacoplamento Estrito de Rede e Ordens**:
+    - O ato de salvar na GUI **NÃO realiza nenhuma chamada à Binance**. Cadastro e teste de conectividade permanecem operações estritamente separadas.
+    - Ordens reais continuam categoricamente bloqueadas (`create_order` e `cancel_order` permanecem levantando `LiveTradingBlockedError`).
+  - **Pontos de Entrada CLI**:
+    - Invocação direta via `python -m finbot.credentials_gui`.
+    - Suporte integrado à ação `gui` na CLI existente: `python -m finbot.credentials gui`.
+    - Os comandos existentes `status`, `setup` e `remove` continuam funcionando sem qualquer alteração.
+- **Motivo**: Eliminar falhas operacionais decorrentes de colagem cega no terminal e fornecer um mecanismo ergonômico, confiável e inviolável para o operador registrar suas credenciais no Windows Credential Manager antes da execução de testes read-only.
+
