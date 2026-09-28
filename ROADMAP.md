@@ -349,14 +349,35 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Bloqueio arquitetural de ordens reais 100% mantido: zero ordens criadas, zero ordens canceladas, nenhum endpoint de trading invocado (`create_order` e `cancel_order` bloqueados com `LiveTradingBlockedError`)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.3 — Live Execution Safety Foundation (Pendente)
-- Esta fase NÃO habilita trading real imediatamente.
-- Construção dos alicerces e salvaguardas preliminares para execução segura:
-  - Verificação estrita de pré-condições da exchange (filtros de lote `minQty`, `stepSize`, filtros de preço `tickSize` e notional mínimo).
-  - Validação estática contínua de permissões da chave de API (bloqueio imediato se withdrawal ou transfer estiverem habilitados).
-  - Definição do mecanismo de autorização formal de execução (Hard Kill Switch de segurança e dupla confirmação do operador).
-  - Mapeamento determinístico de reconciliação de estado entre ordens locais e a exchange.
-  - `create_order` e `cancel_order` permanecem bloqueados por padrão até a homologação completa das salvaguardas.
+#### FASE 8.3 — Live Execution Safety Foundation (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/live_safety.py` com fundação defensiva preliminar antes de qualquer execução live
+- [x] Princípio de Separação Estrita: `SIGNAL -> ORDER INTENT -> RISK ENGINE -> MARKET FILTER GUARD -> STATE RECONCILIATION -> LIVE SAFETY GATE -> APPROVED INTENT`
+- [x] Regra Mandatória: `APPROVED INTENT != EXECUTED ORDER` (execução real inexistente nesta fase)
+- [x] Estrutura imutável `OrderIntent` (frozen dataclass) com validação estrutural no construtor (rejeição de strings vazias, valores <= 0, NaN, Inf)
+- [x] Implementação do `MarketFilterGuard` consumindo metadados normalizados do CCXT (`limits` e `precision`) e raw `info.filters` com fallback auditado
+- [x] Funções puras em `Decimal`: `sanitize_amount`, `sanitize_price`, `validate_notional` sem hardcoding de valores da Binance
+- [x] Política de truncamento estrito: ordens truncadas para passos inteiros válidos (`stepSize`, `tickSize`), sendo categoricamente proibido inflar quantidades para atingir limites mínimos
+- [x] Rejeição fail-closed para ordens abaixo do lote mínimo (`BELOW_MIN_AMOUNT`) ou notional mínimo (`BELOW_MIN_NOTIONAL`)
+- [x] Implementação de `StateReconciler` e `AccountStateSnapshot`: reconciliação passiva exigindo saldo livre de quote para BUY e base para SELL (sem mutações ou vendas automáticas)
+- [x] Soberania irrestrita do Risk Engine: rejeições do Risk Engine são absorvidas de forma final pelo `LiveSafetyGate` sem override ou bypass
+- [x] Hard Live Limit operacional (`live_max_order_notional`, default 100 USDT) via `src/finbot/config.py` com rejeição imediata se excedido
+- [x] Autorização explícita de live trading (`live_trading_acknowledged`, default `False`) requerida para elegibilidade de intenção
+- [x] Investigação formal de `AccountStatus` (`can_trade`, `can_withdraw`): demonstrado que refletem KYC/AML da conta mestra, e NÃO permissões da API Key; proibido utilizá-los como gate de autorização
+- [x] Auditoria local append-only em SQLite (`live_safety_decisions` via `LiveSafetyAuditStorage`) registrando apenas dados operacionais sem credenciais
+- [x] Inviolabilidade de `create_order` e `cancel_order`: preservados com `LiveTradingBlockedError` em `BinancePrivateExchange`
+- [x] Teste sentinela `test_phase_8_3_cannot_submit_real_orders` provando a impossibilidade de envio de ordens reais
+- [x] Adição de 22 testes unitários e de integração em `tests/test_live_safety.py` (totalizando 289 testes no projeto)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+#### FASE 8.4 — Live Order Execution Engine (Dry-Run / Micro-Orders) (Pendente)
+- Esta fase preparará a orquestração segura de submissão de micro-ordens reais com salvaguardas adicionais:
+  - Implementação de executor de ordens com modo Dry-Run (simulação controlada com validação completa dos endpoints)
+  - Transição de `create_order` para suporte a micro-ordens com teto reduzido (ex: 10 USDT de micro-teste)
+  - Rastreamento de ciclo de vida de ordem (NEW, PARTIALLY_FILLED, FILLED, CANCELED, REJECTED, EXPIRED)
+  - Tratamento determinístico de timeouts, falhas de rede transitórias e idempotência via `clientOrderId`
+  - Reconciliação imediata de posições locais após confirmação de fill
+  - Manutenção do bloqueio até a autorização explícita do operador e testes manuais controlados no PC Forte
 
 ---
 

@@ -562,4 +562,67 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Nenhum valor nominal, quantidade de moedas, saldo ou identificador sensível foi inserido no repositório Git, documentação ou logs, preservando confidencialidade total.
 - **Motivo**: Consolidar formalmente a validação operacional da camada privada da Binance em produção, garantindo estabilidade e aderência total aos protocolos de segurança antes do início dos estudos de governança de execução na Fase 8.3.
 
+---
+
+### D032 — Live Execution Safety Foundation (Fase 8.3)
+- **Status**: Aceito
+- **Data**: FASE 8.3
+- **Contexto**: Com a validação read-only da Binance Spot concluída na Fase 8.2C, o FinBot precisa estabelecer a fundação de segurança preventiva antes de qualquer futura capacidade de envio de ordens. O envio de ordens reais envolve riscos severos (erros de precisão, ordens abaixo do lote mínimo ou notional mínimo da exchange, saldo insuficiente, falha de integridade, ordens acidentais de grande porte). O princípio constitucional do projeto estabelece: antes de ensinar o FinBot a enviar uma ordem, ele deve conseguir provar deterministicamente que uma intenção de ordem é válida, segura, limitada, autorizada e fail-closed.
+- **Decisão**:
+  - **Fluxo Categórico com Separação Estrita de Responsabilidades**:
+    ```text
+    SIGNAL
+      ↓
+    ORDER INTENT
+      ↓
+    RISK ENGINE
+      ↓
+    MARKET FILTER GUARD
+      ↓
+    STATE RECONCILIATION
+      ↓
+    LIVE SAFETY GATE
+      ↓
+    APPROVED INTENT  (ou REJECTED INTENT)
+    ```
+    - **Regra Fundamental: `APPROVED INTENT != EXECUTED ORDER`**. Uma intenção aprovada representa apenas a validação formal de elegibilidade. O FinBot **NÃO** executa ordens na Fase 8.3; `create_order()` e `cancel_order()` permanecem categoricamente bloqueados levantando `LiveTradingBlockedError`.
+  - **OrderIntent Imutável**:
+    - Dataclass frozen (`symbol`, `side`, `order_type`, `quantity`, `price`, `requested_notional`, `strategy_name`, `strategy_version`, `signal`, `created_at`, `correlation_id`).
+    - Validação estrutural rigorosa no construtor: campos obrigatórios, valores numéricos finitos e positivos, rejeição imediata de `NaN` e infinitos.
+    - Representa estritamente uma **intenção de dados**, sem referências à exchange e sem capacidade de envio de ordens.
+  - **MarketFilterGuard (Filtros de Mercado Binance Spot)**:
+    - Extração dinâmica de filtros de mercado baseada em metadados normalizados do CCXT (`limits` e `precision`), recorrendo a `info.filters` (`LOT_SIZE`, `PRICE_FILTER`, `MIN_NOTIONAL`, `NOTIONAL`) apenas como fallback documentado.
+    - Proibição absoluta de hardcoding de valores da Binance (sem fixar 5 USDT, 10 USDT, tickSize ou stepSize no código).
+    - Funções puras em `Decimal` para cálculo financeiro preciso: `sanitize_amount`, `sanitize_price`, `validate_notional`.
+    - Truncamento estrito para passos válidos (`units = amount // amount_step; sanitized = units * amount_step`).
+    - **Regra Anti-Exposição**: Nunca inflar silenciosamente uma ordem para alcançar o mínimo. Se a quantidade truncada ou o notional estiverem abaixo do mínimo exigido pelo mercado, a ordem é rejeitada (`BELOW_MIN_AMOUNT` / `BELOW_MIN_NOTIONAL`).
+  - **StateReconciler e AccountStateSnapshot**:
+    - Estrutura imutável `AccountStateSnapshot` contendo saldos livres e bloqueados para os ativos base e quote do símbolo avaliado.
+    - Reconciliação passiva e defensiva: ordens BUY exigem saldo disponível suficiente de `quote_asset`; ordens SELL exigem saldo disponível suficiente de `base_asset`.
+    - Se saldo insuficiente ou snapshot ausente: rejeição imediata (`INSUFFICIENT_QUOTE_BALANCE`, `INSUFFICIENT_BASE_BALANCE`, `MISSING_ACCOUNT_STATE`).
+    - **Proibição de Correção Automática**: O reconciliador nunca realiza vendas automáticas, nunca cria posições sintéticas e nunca altera saldos.
+  - **Soberania Absoluta do Risk Engine Existente**:
+    - O `LiveSafetyGate` não duplica nem substitui o Risk Engine (`src/finbot/risk.py`).
+    - Se o Risk Engine rejeitar (`allowed=False`), o `LiveSafetyGate` rejeita imediatamente sem possibilidade de override, bypass ou flags como `force=true`.
+  - **Hard Live Limit Operacional (`live_max_order_notional`)**:
+    - Limite financeiro defensivo adicional (default conservador: 100 USDT) configurável via `FINBOT_LIVE_MAX_ORDER_NOTIONAL`.
+    - Se o valor nocional da ordem ultrapassar esse teto, rejeita imediatamente (`EXCEEDS_LIVE_MAX_NOTIONAL`). A ordem nunca é truncada silenciosamente para caber no limite.
+  - **Autorização Operacional Explícita (`live_trading_acknowledged`)**:
+    - Flag booleano configurável via `FINBOT_LIVE_TRADING_ACKNOWLEDGED`, com **default obrigatório `False`**.
+    - Para uma ordem futura ser elegível, ambos `trading_mode == 'live'` e `live_trading_acknowledged == True` são exigidos.
+    - Mesmo com ambos ativos, a ordem **AINDA NÃO É ENVIADA**, pois a Fase 8.3 não possui executor.
+  - **Semântica de AccountStatus / API Permissions da Binance**:
+    - Investigação formal dos endpoints da Binance/CCXT revelou que os campos `canTrade`, `canWithdraw`, `canDeposit` do endpoint `/api/v3/account` (CCXT `get_account_status()`) representam o status da **conta mestra** (KYC/AML do usuário), e **NÃO** as permissões granulares da chave de API HMAC específica.
+    - Na Fase 8.2C, `can_withdraw` retornou `True` mesmo com saques totalmente desabilitados nas configurações da API Key.
+    - **Conclusão e Decisão**: `can_trade`/`can_withdraw` de `AccountStatus` **NÃO DEVEM** ser utilizados como mecanismo de autorização da chave de API no FinBot. A proteção de permissões de chave reside externamente na Binance (leitura estrita, restrição de IP), enquanto internamente o FinBot aplica travas fail-closed independentes.
+  - **Auditoria Local Segura (`LiveSafetyAuditStorage`)**:
+    - Registro append-only em SQLite (`live_safety_decisions`) contendo apenas metadados operacionais não sensíveis (`correlation_id`, `timestamp`, `symbol`, `side`, `requested_notional`, `normalized_notional`, `decision`, `reason_code`).
+    - Proibição estrita de gravação de API keys, API secrets ou quaisquer credenciais privadas.
+  - **Inviolabilidade de Execução Real**:
+    - `BinancePrivateExchange.create_order()` e `cancel_order()` permanecem com `LiveTradingBlockedError`.
+    - Nenhum novo método (`submit_order`, `send_order`, `execute_order`) foi criado.
+    - Prova arquitetural sentinela formalizada no teste `test_phase_8_3_cannot_submit_real_orders`.
+- **Motivo**: Construir a barreira de proteção de execução mais rigorosa e determinística possível, garantindo que quando o módulo de envio de ordens for implementado em fases futuras, nenhuma ordem inválida, não-autorizada ou financeiramente excessiva possa atingir o livro de ofertas da exchange.
+
+
 

@@ -1,7 +1,24 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.2C — Homologação Binance Private API Read-Only concluída no PC Forte.
+FASE 8.3 — Live Execution Safety Foundation concluída no Notebook.
+
+### Live Execution Safety Foundation (FASE 8.3)
+- Módulo `src/finbot/live_safety.py` implementado com fundação defensiva preliminar antes de qualquer futura execução de ordens Binance Spot:
+  - *Fluxo Categórico com Separação de Responsabilidades*:
+    `SIGNAL -> ORDER INTENT -> RISK ENGINE -> MARKET FILTER GUARD -> STATE RECONCILIATION -> LIVE SAFETY GATE -> APPROVED INTENT`
+  - *Princípio Soberano*: **APPROVED INTENT != EXECUTED ORDER**. Uma intenção aprovada atesta apenas a conformidade teórica com regras e limites; a execução real continua inexistente e categoricamente bloqueada nesta fase.
+  - *OrderIntent Imutável*: Dataclass frozen com validação rigorosa no construtor (rejeição de campos vazios, números não positivos, `NaN` e infinitos). Não referencia a exchange nem possui métodos de envio.
+  - *MarketFilterGuard*: Extração dinâmica de limites a partir do CCXT (`limits` e `precision`) e `info.filters` da Binance. Funções puras em `Decimal` (`sanitize_amount`, `sanitize_price`, `validate_notional`). Truncamento estrito para passos válidos (`stepSize`, `tickSize`). Proibição categórica de inflar quantidades para bater mínimos (se menor que o mínimo, rejeita com `BELOW_MIN_AMOUNT` / `BELOW_MIN_NOTIONAL`).
+  - *StateReconciler e AccountStateSnapshot*: Validação passiva de suficiência patrimonial (BUY exige saldo quote livre; SELL exige saldo base livre). Se insuficiente ou ausente, rejeita imediatamente (`INSUFFICIENT_QUOTE_BALANCE`, `INSUFFICIENT_BASE_BALANCE`, `MISSING_ACCOUNT_STATE`). Proibição total de correção automática de saldo, posições sintéticas ou vendas forçadas.
+  - *Soberania Absoluta do Risk Engine*: O `LiveSafetyGate` consome a decisão do Risk Engine existente (`src/finbot/risk.py`). Se o Risk Engine rejeitar, o gate rejeita. Não existe override, bypass ou `force=true`.
+  - *Hard Live Limit Operacional*: `live_max_order_notional` (default conservador: 100 USDT) configurável em `src/finbot/config.py`. Se o valor nocional da ordem exceder o limite, rejeição imediata (`EXCEEDS_LIVE_MAX_NOTIONAL`) sem truncamento automático.
+  - *Autorização Explícita*: `live_trading_acknowledged` (default mandatório: `False`) configurável em `src/finbot/config.py`. Exige `trading_mode == 'live'` E `live_trading_acknowledged == True` para elegibilidade, sem habilitar submissão de ordens.
+  - *Semântica de AccountStatus / API Permissions*: Investigação concluiu que `can_trade`/`can_withdraw` do endpoint `/api/v3/account` representam KYC/AML da conta mestra, e NÃO permissões da API Key específica. Decisão formal: NÃO utilizá-los como gate de autorização.
+  - *Auditoria Local Segura*: Classe `LiveSafetyAuditStorage` com persistência append-only em SQLite (`live_safety_decisions`) gravando exclusivamente dados operacionais não sensíveis (sem chaves de API, segredos ou credenciais).
+  - *Inviolabilidade de Trading Real*: `create_order` e `cancel_order` permanecem bloqueados levantando `LiveTradingBlockedError` em `BinancePrivateExchange`. Prova arquitetural sentinela aprovada em `test_phase_8_3_cannot_submit_real_orders`.
+- 289 testes automatizados (277 passando e 12 skipped no `.venv` padrão; zero chamadas de rede). 22 novos testes em `tests/test_live_safety.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Binance Private API Read-Only Validation (FASE 8.2C)
 - Homologação operacional realizada e validada com sucesso no ambiente oficial do PC Forte (`C:\Projetos\FinBot`):
@@ -169,9 +186,11 @@ not implemented
 - D029: Windows Credential Manager for Binance Secrets (Fase 8.2A).
 - D030: Secure Local Credential Enrollment GUI (Fase 8.2B).
 - D031: Binance Private API Read-Only Operational Validation (Fase 8.2C).
+- D032: Live Execution Safety Foundation (Fase 8.3).
 
 ## Último checkpoint
-FASE 8.2C — Binance Private Read-Only Validation: Homologação operacional concluída com sucesso no PC Forte (`C:\Projetos\FinBot`). Verificação de credenciais no Windows Credential Manager reportou `PRESENT` sob o target `FinBot/Binance/Production`. Validação estrutural confirmou integridade de 64 caracteres em API Key e API Secret, sem whitespace. Resolução definitiva do erro -1022 (truncamento no CLI antigo superado pela GUI da Fase 8.2B). Chamadas privadas reais executadas em modo estritamente Read-Only com sucesso: `get_account_status()` -> PASS e `get_balances()` -> PASS. API com restrição de IP para o PC Forte, saques desabilitados (zero withdrawals), transferências desabilitadas (zero transfers) e trading desabilitado na exchange. Zero ordens criadas ou canceladas (`create_order` e `cancel_order` permanecem bloqueados com `LiveTradingBlockedError`). Paper Soak Test de 72h preservado ininterrupto no PC Forte.
+FASE 8.3 — Live Execution Safety Foundation: Módulo defensivo preliminar `src/finbot/live_safety.py` implementado e validado com 22 testes dedicados sem rede (totalizando 289 testes no projeto). Separação estrita SIGNAL -> ORDER INTENT -> RISK ENGINE -> MARKET FILTER GUARD -> STATE RECONCILIATION -> LIVE SAFETY GATE -> APPROVED INTENT. Regra soberana: APPROVED INTENT != EXECUTED ORDER. Modelos OrderIntent e AccountStateSnapshot imutáveis com validações numéricas estritas contra NaN, Inf e campos vazios. MarketFilterGuard com sanitização de lote e preço via Decimal sem inflar ordens. StateReconciler passivo validando saldos necessários sem autocorreções ou vendas. Soberania irrestrita do Risk Engine preservada sem bypass. Hard Live Limit (live_max_order_notional=100 USDT) e autorização explícita (live_trading_acknowledged=False). Auditoria append-only segura em SQLite sem secrets. Comprovado formalmente que can_trade/can_withdraw não representam permissões da API Key e não devem ser usados como autorizadores. Teste sentinela test_phase_8_3_cannot_submit_real_orders aprovado: create_order e cancel_order continuam bloqueados com LiveTradingBlockedError. Paper Soak de 72h no PC Forte intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.3 — Live Execution Safety Foundation (desenho de salvaguardas preliminares, verificação de filtros de lote/preço da Binance Spot e travas de segurança antes de qualquer execução de ordens).
+FASE 8.4 — Live Order Execution Engine (Dry-Run / Micro-Orders) (orquestração segura de submissão de micro-ordens reais com salvaguardas adicionais, suporte a modo Dry-Run e idempotência).
+

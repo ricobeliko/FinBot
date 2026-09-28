@@ -40,6 +40,8 @@ class Config:
     adaptive_mode: str = "off"
     adaptive_model_id: str = ""
     adaptive_registry_db: str = "data/lab/results/model_registry/model_registry.sqlite3"
+    live_trading_acknowledged: bool = False
+    live_max_order_notional: float = 100.0
     binance_api_key: str = field(default="", repr=False)
     binance_api_secret: str = field(default="", repr=False)
 
@@ -63,6 +65,17 @@ def get_config() -> Config:
     raw_mode = os.getenv("TRADING_MODE", DEFAULT_TRADING_MODE).strip().lower()
     trading_mode = raw_mode if raw_mode in VALID_TRADING_MODES else DEFAULT_TRADING_MODE
 
+    raw_ack = os.getenv("LIVE_TRADING_ACKNOWLEDGED", "false").strip().lower()
+    live_trading_acknowledged = raw_ack in ("1", "true", "yes")
+
+    raw_live_max = os.getenv("LIVE_MAX_ORDER_NOTIONAL", "100.0").strip()
+    try:
+        live_max_order_notional = float(raw_live_max)
+    except ValueError:
+        live_max_order_notional = 100.0
+
     return Config(
         trading_mode=trading_mode,
+        live_trading_acknowledged=live_trading_acknowledged,
+        live_max_order_notional=live_max_order_notional,
     )
