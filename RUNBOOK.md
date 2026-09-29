@@ -540,65 +540,69 @@ Garanta que as dependências estejam atualizadas no ambiente virtual oficial:
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e .
-python -m unittest discover tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 *Critério: Todos os testes automatizados devem passar com 100% de sucesso antes de qualquer execução.*
 
 #### Passo 3: Verificação de Credenciais Spot Testnet
 Verifique se as credenciais da Binance Spot Testnet estão cadastradas no Windows Credential Manager:
 ```powershell
-python -m finbot.credentials status --environment spot_testnet
+.\.venv\Scripts\python.exe -m finbot.credentials status --env spot_testnet
 ```
 Se estiverem ausentes, cadastre com segurança via GUI local:
 ```powershell
-python -m finbot.credentials_gui --environment spot_testnet
+.\.venv\Scripts\python.exe -m finbot.credentials_gui --env spot_testnet
 ```
 *(Target canônico: `FinBot/Binance/SpotTestnet`)*
 
 #### Passo 4: Executar Preflight Check na Testnet
 Verifique a conectividade privada autenticada, leitura de saldos, integridade de mercado e barreiras de segurança:
 ```powershell
-python -m finbot.testnet_preflight
+.\.venv\Scripts\python.exe -m finbot.testnet_preflight
 ```
-*Critério: Todas as 11 checagens devem retornar `PASS` e `READY_FOR_8_4C2 = YES`.*
+*Critério: Todas as verificações privadas/públicas devem retornar `PASS`, com `TESTNET_ORDERS_SENT = 0`, `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO` e a linha final atestando `READY_FOR_TESTNET_ORDER = YES`.*
 
-#### Passo 5: Executar Preview Read-Only com Banco S2
+#### Passo 5: Executar Preview READ-ONLY com Banco S2
 Execute uma verificação prévia do soak apontando para o banco dedicado do S2:
 ```powershell
-python -m finbot.testnet_soak --db-path data/finbot_testnet_soak_s2.sqlite3
+.\.venv\Scripts\python.exe -m finbot.testnet_soak --db-path data/finbot_testnet_soak_s2.sqlite3
 ```
-*Garantia: O comando opera por padrão em PREVIEW e atesta `TESTNET_WRITE_EXECUTED = NO`.*
+*Garantia: O comando opera por padrão em PREVIEW Safe Mode (sem `--confirm-testnet-soak`) e atesta `TESTNET_WRITE_EXECUTED = NO`.*
 
-#### Passo 6: Executar Ciclo Único de Teste (--once) com Banco S2
-Execute um único ciclo pontual para validar a criação e migração automática do banco `finbot_testnet_soak_s2.sqlite3`:
+#### Passo 6: Executar Smoke Test ARMADO de um Único Ciclo (--once) com Banco S2
+Execute o smoke test armado de um único ciclo pontual para validar a criação e migração automática do banco `finbot_testnet_soak_s2.sqlite3`:
 ```powershell
-python -m finbot.testnet_soak --once --db-path data/finbot_testnet_soak_s2.sqlite3
+.\.venv\Scripts\python.exe -m finbot.testnet_soak --confirm-testnet-soak --once --db-path data/finbot_testnet_soak_s2.sqlite3
 ```
+*Atenção: O comando armado com as flags `--confirm-testnet-soak --once` executa exatamente 1 ciclo na exchange. Pode enviar ordem somente à Binance Spot Testnet se houver sinal operacional (`BUY` ou `SELL`). Production permanece estritamente bloqueada (`PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`).*
 
 #### Passo 7: Inspecionar Relatório de Status do Banco S2
 Verifique o estado inicial e a saúde do runner no banco S2:
 ```powershell
-python -m finbot.testnet_soak_status --db-path data/finbot_testnet_soak_s2.sqlite3
+.\.venv\Scripts\python.exe -m finbot.testnet_soak_status --db-path data/finbot_testnet_soak_s2.sqlite3
 ```
 
 #### Passo 8: Início da Bateria Contínua Supervisionada (24 Horas)
-Após a confirmação pelo operador, inicie a execução contínua com intervalo de 60 segundos por ciclo:
+Após a confirmação pelo operador, inicie a execução contínua supervisionada usando a flag `--confirm-testnet-soak` (SEM a flag `--once`):
 ```powershell
-python -m finbot.testnet_soak --continuous --interval-seconds 60 --db-path data/finbot_testnet_soak_s2.sqlite3
+.\.venv\Scripts\python.exe -m finbot.testnet_soak --confirm-testnet-soak --db-path data/finbot_testnet_soak_s2.sqlite3
 ```
 *Durante a execução:*
+- **Semântica do Comando**: A presença de `--confirm-testnet-soak` sem a flag `--once` aciona o loop contínuo do runner (`run_testnet_soak_continuous`);
+- **Intervalo do Ciclo**: O runner opera internamente em intervalo periódico fixo de 60 segundos por ciclo (`cycle_interval_seconds = 60.0`);
 - O runner executa a reconciliação pré-ciclo antes de cada decisão de estratégia;
 - Emite heartbeat dinâmico a cada ciclo, atualizando `runner_status = RUNNING`;
 - Calcula taxas realistas (segregação exchange vs fallback estimado de 0.10%);
 - Monitora slippage em USDT e bps em cada fill sem dupla contagem;
-- Em caso de anomalia, o Circuit Breaker desarma o envio de novas ordens automaticamente.
+- Em caso de anomalia, o Circuit Breaker desarma o envio de novas ordens automaticamente;
+- Production permanece categoricamente inviolada e bloqueada (`PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`).
 
 #### Passo 9: Monitoramento Concorrente de Status (Em outro terminal no PC Forte)
 O operador pode acompanhar o progresso em tempo real a qualquer momento sem interromper o processo:
 ```powershell
 cd C:\Projetos\FinBot
 .\.venv\Scripts\Activate.ps1
-python -m finbot.testnet_soak_status --db-path data/finbot_testnet_soak_s2.sqlite3
+.\.venv\Scripts\python.exe -m finbot.testnet_soak_status --db-path data/finbot_testnet_soak_s2.sqlite3
 ```
 
 #### Passo 10: Encerramento Gracioso (Graceful Shutdown)
