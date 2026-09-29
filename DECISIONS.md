@@ -933,3 +933,50 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Nenhum comando armado de execução automática fornecido nesta fase.
 - **Motivo**: Assegurar integridade estatística, observabilidade total, confiabilidade operacional e proteção estrita antes do início do soaking na Testnet, sem qualquer risco a fundos reais.
 
+---
+
+### D040 — Testnet Soak Hardening, Heartbeat Observability, Realistic Cost Accounting & PC Forte S2 Protocol (Fase 8.4C2E)
+- **Status**: Aceito
+- **Data**: FASE 8.4C2E
+- **Contexto**: A conclusão bem-sucedida do ciclo S1 do Testnet Soak no Notebook (02h32m04s, 134 ciclos, 8 fills, 4 trades fechados, 0 UNKNOWN, 0 órfãs, 0 erros de API, posição final NONE) confirmou a integridade funcional do pipeline em ambiente sandbox da Binance. Contudo, para preparar o sistema com segurança para uma bateria prolongada supervisionada de 24 horas (S2) no ambiente de execução dedicada (PC Forte), foi necessária a implementação de hardening rigoroso abrangendo observabilidade dinâmica de runner, graceful shutdown, restart com reconciliação prévia mandatória, segregação de taxas (exchange-reported vs estimated fallback), rastreamento determinístico de slippage por fill sem dupla contagem e preservação intangível dos dados do S1.
+- **Decisão**:
+  - **Observabilidade Dinâmica de Status e Heartbeat**:
+    - Substituição do status estático baseado em histórico pelo cálculo dinâmico via `determine_runner_status(storage, circuit_breaker, heartbeat_timeout_seconds=180.0)`.
+    - Estados possíveis:
+      * `READY/IDLE`: Antes de qualquer inicialização ou quando o runner estiver inativo e sem disjuntor acionado;
+      * `RUNNING`: Runner em execução ativa com heartbeat registrado no SQLite há menos de 180 segundos;
+      * `STOPPED`: Runner encerrado de forma graciosa (Ctrl+C / normal) ou após expiração do heartbeat (stale runner detection);
+      * `CIRCUIT_BREAKER_TRIPPED`: Disjuntor acionado, bloqueando imediatamente novas ordens.
+  - **Encerramento Gracioso (Graceful Shutdown)**:
+    - Implementação de runner contínuo (`run_testnet_soak_continuous`) com captura explícita de `KeyboardInterrupt`, `Ctrl+C` e sinais de encerramento.
+    - Ao encerrar: marca `runner_status = "STOPPED"`, persiste `shutdown_at` e último checkpoint no SQLite, fecha conexões do banco de dados e clientes de rede de forma limpa, não emite novas ordens, preserva posições abertas válidas e preserva ordens em estado UNKNOWN para futura reconciliação.
+  - **Restart Seguro e Reconciliação Prévia Mandatória**:
+    - Função `reconcile_pre_cycle_state` executada estritamente ANTES de qualquer invocação da Strategy ou do Risk Engine.
+    - Reconcilia todas as ordens não terminais (`PENDING_SUBMISSION`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`, `UNKNOWN`) com a exchange;
+    - Reconstrói a posição local a partir do histórico auditado de trades;
+    - Compara os saldos locais com os saldos da exchange;
+    - Dispara o Circuit Breaker impedindo qualquer nova ordem caso exista ordem UNKNOWN não localizada ou divergência de saldo;
+    - Nenhum CREATE de ordem é permitido antes da conclusão bem-sucedida desta validação.
+  - **Contabilização Segregada e Realista de Taxas (Fees)**:
+    - Segregação contábil explícita entre `EXCHANGE_REPORTED_FEES` e `ESTIMATED_FEES`.
+    - Quando a exchange reportar comissão válida (`fee > 0`), o valor reportado é adotado (`fee_source = "EXCHANGE"`).
+    - Quando a exchange omitir ou reportar zero (comum na Binance Testnet), aplica-se o modelo determinístico de taxa estimada fallback de 0.10% (`0.0010` do notional) sob a categoria `ESTIMATED_FEES` (`fee_source = "ESTIMATED"`).
+    - Todos os valores são calculados com precisão `Decimal` e descontados integralmente no `NET_PNL`.
+  - **Estimativa de Slippage por Fill e Não Duplicação**:
+    - Captura do `reference_price` (preço de mercado no instante exato da intenção da ordem) e comparação com o `average_fill_price` real obtido na execução.
+    - BUY Slippage: `(average_fill_price - reference_price) * executed_quantity` (adverso se positivo);
+    - SELL Slippage: `(reference_price - average_fill_price) * executed_quantity` (adverso se positivo);
+    - Registro de `estimated_slippage_usdt` e `estimated_slippage_bps` por trade e média ponderada por notional no snapshot financeiro;
+    - **Metodologia de Não Dupla Contagem**: O `average_fill_price` já define o débito/crédito real de caixa no momento do trade; logo, o slippage atua estritamente como métrica de atrito analítico de execução e **não** é deduzido novamente do `NET_PNL`, eliminando risco de distorção matemática.
+  - **Métricas Derivadas Auditadas**:
+    - Garantido que ordens canceladas sem fill (`executed_quantity == 0`) são sumariamente ignoradas no PnL e contagem de trades;
+    - Trades abertos permanecem isolados em `unrealized_pnl` e não entram em `closed_trades`;
+    - Fills parciais são rateados proporcionalmente pelo custo de inventário;
+    - Métricas `win_rate`, `profit_factor` (com teto padrão de 999.99 na ausência de perdas para compatibilidade JSON), `average_win`, `average_loss` e `expectancy` operam sobre dados reais descontando taxas.
+  - **Preservação de Dados do S1 e Protocolo de Deploy S2**:
+    - A base de dados do S1 (`data/finbot_testnet_soak.sqlite3`) é preservada intacta como histórico do Notebook, sendo expressamente proibido apagá-la ou sobrescrevê-la.
+    - O deploy do S2 no PC Forte operará em banco próprio isolado (`data/finbot_testnet_soak_s2.sqlite3`).
+    - O primeiro S2 será supervisionado (sem serviço em background ou Task Scheduler automático).
+- **Motivo**: Blindar a robustez operacional, fidedignidade contábil e resiliência de restart do sistema antes da execução de 24 horas no ambiente definitivo de hardware.
+
+

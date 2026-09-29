@@ -494,8 +494,8 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Execução operacional armada de LIMIT + CANCEL na Spot Testnet: `ACKNOWLEDGED` -> `CANCEL_PENDING` -> `CANCELED`, reconciliação confirmada
 - [x] Inviolabilidade de produção mantida: `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`
 
-##### FASE 8.4C2D — Binance Spot Testnet Soak & Operational Metrics (Em Implementação / Validação Operacional)
-- **Status**: EM IMPLEMENTAÇÃO
+##### FASE 8.4C2D — Binance Spot Testnet Soak & Operational Metrics (Concluída no Notebook)
+- **Status**: CONCLUÍDA
 - [x] Correção de semântica de fills: `average_price = None` quando `executed_quantity == 0` (ordem cancelada não executada não contamina preço médio nem PnL)
 - [x] Preservação segregada de `requested_price` / `limit_price` e `average_fill_price`
 - [x] Implementação do Testnet Soak Runner isolado (`src/finbot/testnet_soak.py`) sem contaminação do Paper Runner
@@ -510,7 +510,37 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Entrypoint do soak `python -m finbot.testnet_soak` operando por padrão em modo PREVIEW (Safe Mode Read-Only)
 - [x] Isolamento categórico de produção com sentries fail-closed
 - [x] Adição de 17 testes focados em `tests/test_testnet_soak.py` (totalizando 408 testes na suíte padrão)
-- [ ] Início assistido de operação contínua do Testnet Soak (aguardando revisão humana; zero ordens externas enviadas durante a implementação)
+- [x] Execução assistida do primeiro ciclo prolongado S1 no Notebook concluída com sucesso:
+  - `DURAÇÃO = 02h32m04s`
+  - `TOTAL_CYCLES = 134`
+  - `TOTAL_TRADES = 8 fills / 4 trades fechados`
+  - `ORDERS_FILLED = 8`
+  - `UNKNOWN_ORDERS = 0`
+  - `ORPHAN_ORDERS = 0`
+  - `API_ERRORS = 0`
+  - `CIRCUIT_BREAKER_TRIPPED = NO`
+  - `POSIÇÃO_FINAL = NONE`
+  - `PRODUCTION_ORDERS_SENT = 0`
+  - `PRODUCTION_WRITE_ENABLED = NO`
+  - Financeiro observado: `STARTING_EQUITY = 100.00`, `CURRENT_EQUITY = 100.05`, `NET_PNL = +0.05 USDT` (com `FEES = 0.00`, `ESTIMATED_SLIPPAGE = 0.00` e amostra $N=4$, logo sem interpretação como comprovação de lucratividade).
+  - Base de dados do S1 preservada intacta em `data/finbot_testnet_soak.sqlite3`.
+
+##### FASE 8.4C2E — Testnet Soak Hardening & PC Forte Deployment Readiness (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Correção e dinamização da observabilidade de status do runner: `determine_runner_status()` com heartbeat dinâmico (timeout padrão 180s), estados `READY/IDLE`, `RUNNING`, `STOPPED`, `CIRCUIT_BREAKER_TRIPPED` e detecção de runner inativo.
+- [x] Encerramento gracioso (*Graceful Shutdown*): captura de `KeyboardInterrupt` / `Ctrl+C` no runner contínuo (`run_testnet_soak_continuous`), persistência de `runner_status = "STOPPED"`, `shutdown_at` e fechamento limpo do SQLite sem corrupção e sem cancelamento cego de ordens UNKNOWN.
+- [x] Reinício seguro com reconciliação pré-ciclo mandatória (`reconcile_pre_cycle_state`): verificação e reconciliação de ordens não terminais (`PENDING_SUBMISSION`, `SUBMITTED`, `ACKNOWLEDGED`, `PARTIALLY_FILLED`, `CANCEL_PENDING`, `UNKNOWN`) com a exchange antes de qualquer invocação de Strategy ou Risk Engine.
+- [x] Reconstrução consistente de posição local a partir de trades auditados e comparação com saldo da exchange; disparo imediato do Circuit Breaker sob divergência crítica ou ordem UNKNOWN.
+- [x] Contabilização realista de taxas (*Fees*): segregação contábil entre `EXCHANGE_REPORTED_FEES` e `ESTIMATED_FEES` (fallback conservador de 0.10% do notional quando a exchange reporta zero ou omite comissão), com dedução estrita no `NET_PNL`.
+- [x] Rastreamento determinístico de slippage por fill (`fill_price` vs `reference_price` capturado no instante da intenção) em USDT e bps para BUY e SELL; documentação metodológica de não duplicação no `NET_PNL` (já refletido no preço de fill).
+- [x] Auditoria e blindagem de métricas financeiras derivadas: exclusão estrita de ordens canceladas sem fill, isolamento de PnL não realizado fora de trades fechados, rateio de custo em fills parciais, `profit_factor` padronizado em 999.99 na ausência de perdas (garantindo JSON válido), `average_win`, `average_loss` e `expectancy`.
+- [x] Preservação intangível da base S1 (`data/finbot_testnet_soak.sqlite3` intacta com 134 ciclos e 8 fills).
+- [x] Elaboração do protocolo operacional detalhado para deploy do S2 (24 horas supervisionadas) no PC Forte em banco dedicado `data/finbot_testnet_soak_s2.sqlite3` no `RUNBOOK.md`.
+- [x] Formalização arquitetural do ADR D040 em `DECISIONS.md`.
+- [x] Adição de 12 novos testes de hardening em `tests/test_testnet_soak.py` (totalizando 420 testes no projeto, todos passando em `.venv` e `.venv-research`).
+- [x] Inviolabilidade de produção mantida: `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`, zero chamadas de rede nos testes.
+
+> **PRÓXIMO MARCO OPERACIONAL**: Execução Supervisionada de 24 Horas do Testnet Soak (S2) no PC Forte com banco próprio `data/finbot_testnet_soak_s2.sqlite3`.
 
 > **DIRETRIZ CONSTITUCIONAL DE CAPITAL REAL (`LIVE_CAPITAL_GATE`)**:
 > **DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**

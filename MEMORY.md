@@ -4,7 +4,41 @@
 FASE 8.4C2A — Integração Binance Spot Testnet e Isolamento de Produção CONCLUÍDA.
 FASE 8.4C2B — Validação Operacional da Binance Spot Testnet CONCLUÍDA.
 FASE 8.4C2C — Validação do Ciclo de Vida de Execução na Binance Spot Testnet CONCLUÍDA OPERACIONALMENTE.
-FASE 8.4C2D — Binance Spot Testnet Soak & Métricas Operacionais EM IMPLEMENTAÇÃO.
+FASE 8.4C2D — Binance Spot Testnet Soak (S1) CONCLUÍDA NO NOTEBOOK.
+FASE 8.4C2E — Testnet Soak Hardening & PC Forte Deployment Readiness CONCLUÍDA NO NOTEBOOK.
+
+### Testnet Soak Hardening & PC Forte Deployment Readiness (FASE 8.4C2E)
+- *Observabilidade Dinâmica de Status & Heartbeat*:
+  - Implementação de `determine_runner_status(storage, circuit_breaker, heartbeat_timeout_seconds=180.0)`.
+  - Estados dinâmicos: `READY/IDLE`, `RUNNING`, `STOPPED`, `CIRCUIT_BREAKER_TRIPPED`.
+- *Encerramento Gracioso (Graceful Shutdown)*:
+  - Captura segura de `KeyboardInterrupt` / `Ctrl+C` em `run_testnet_soak_continuous`.
+  - Persistência de `runner_status = "STOPPED"` e `shutdown_at` no SQLite.
+  - Fechamento limpo de conexões e preservação estrita de posições e ordens UNKNOWN para reconciliação futura.
+- *Restart com Reconciliação Pré-Ciclo Mandatória*:
+  - Função `reconcile_pre_cycle_state` executada ANTES da tomada de decisão de Strategy / Risk Engine.
+  - Reconcilia todas as ordens não-terminais com a exchange.
+  - Reconstrói a posição local a partir do histórico auditado de trades e valida contra saldos da exchange.
+  - Disparo imediato de Circuit Breaker (`stop_new_orders = True`) sob ordens UNKNOWN pendentes ou divergência de saldo.
+- *Contabilização Realista de Taxas (Fees)*:
+  - Segregação contábil explícita entre `EXCHANGE_REPORTED_FEES` e `ESTIMATED_FEES`.
+  - Taxa estimada fallback de 0.10% (0.0010) aplicada quando a exchange reporta zero ou omite comissão.
+  - Dedução estrita de todas as taxas no `NET_PNL`.
+- *Rastreamento de Slippage por Fill sem Dupla Contagem*:
+  - Registro de `reference_price` no instante da intenção e comparação com `average_fill_price`.
+  - Slippage registrado em USDT e bps para BUY e SELL.
+  - Documentação metodológica: o slippage já compõe o preço de fill do trade; não é deduzido novamente do PnL, evitando dupla contagem.
+- *Métricas Financeiras Derivadas Auditadas*:
+  - Exclusão de ordens canceladas sem preenchimento (`executed_quantity == 0`) da contagem de trades e PnL.
+  - PnL não realizado segregado de trades fechados.
+  - `profit_factor` padronizado em 999.99 na ausência de perdas (garantindo JSON válido).
+  - Cálculo determinístico de `average_win`, `average_loss` e `expectancy`.
+- *Preservação Intangível de S1*:
+  - Base `data/finbot_testnet_soak.sqlite3` preservada intacta (134 ciclos, 8 fills, 4 trades fechados, 0 UNKNOWN, 0 orphan, 0 API errors).
+- *Protocolo de Deploy S2 no PC Forte*:
+  - Documentado detalhadamente no `RUNBOOK.md` com banco dedicado `data/finbot_testnet_soak_s2.sqlite3` em modo supervisionado.
+- 420 testes automatizados (408 passando e 12 skipped no `.venv` padrão; 420 passando no `.venv-research`). 12 novos testes focados em `tests/test_testnet_soak.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test no PC Forte.
 
 ### Spot Testnet Soak & Métricas Operacionais (FASE 8.4C2D)
 - *Correção de Qualidade de Dados (Fills Semantics)*:
@@ -306,14 +340,21 @@ not implemented
 - D035: Comando Operacional de Pre-Flight e Validação Hermética de Prontidão (Fase 8.4C1A).
 - D036: Binance Spot Testnet Integration & Production Isolation (Fase 8.4C2A).
 - D037: Assisted Spot Testnet Order Validation & Institutional Live Capital Gate Policy (Fase 8.4C2B).
+- D038: Binance Spot Testnet Execution Lifecycle Validation (Fase 8.4C2C).
+- D039: Binance Spot Testnet Soak Runner, Normalized Strategy Capital & Operational Metrics (Fase 8.4C2D).
+- D040: Testnet Soak Hardening, Heartbeat Observability, Realistic Cost Accounting & PC Forte S2 Protocol (Fase 8.4C2E).
 
 ## Último checkpoint
-FASE 8.4C2B — Spot Testnet Operational Validation: Ferramenta operacional controlada `python -m finbot.testnet_order_validation` implementada e coberta por 17 testes focados unitários e defensivos (totalizando 389 testes no projeto, com 100% de sucesso em ambos os ambientes virtuais `.venv` e `.venv-research`). O entrypoint opera por padrão em modo Dry Preview (100% read-only), calculando dinamicamente quantidade e notional para ~6.00 USDT fictícios a partir do preço de mercado e filtros do par BTC/USDT na Spot Testnet, validando a intenção através de Risk Engine, MarketFilterGuard e isolamento estrito de produção (`TESTNET_WRITE_EXECUTED = NO`, `READY_TO_EXECUTE_TESTNET_ORDER = YES`). A submissão da ordem exige confirmação inequívoca `--confirm-testnet-order` (rejeitando `--yes`, `--force`, `--live`). Sentries pré-escrita validam ambiente, adapter, URLs e target de credenciais antes do envio. Pipeline completo preservado (`OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`). Idempotência garantida via clientOrderId determinístico (`finbot_<hash>`), persistência de PENDING_SUBMISSION, timeout tratado estritamente como UNKNOWN sem auto-retry e reconciliação determinística por polling limitado. Política constitucional do `LIVE_CAPITAL_GATE` formalizada (ADR D037). Zero ordens enviadas durante a implementação (`TESTNET_ORDERS_SENT = 0`, `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`). Paper Soak de 72h no PC Forte intocado.
+FASE 8.4C2E — Testnet Soak Hardening & PC Forte Deployment Readiness CONCLUÍDA: Sistema endurecido com observabilidade dinâmica de status do runner via heartbeat (timeout 180s, estados READY/IDLE, RUNNING, STOPPED, CIRCUIT_BREAKER_TRIPPED), graceful shutdown via KeyboardInterrupt/Ctrl+C persistindo status STOPPED e fechando conexões SQLite limpas sem corrupção, restart seguro com reconciliação pré-ciclo mandatória (`reconcile_pre_cycle_state`) de ordens não terminais e reconstrução de posição local validada contra a exchange antes de invocar Strategy/Risk Engine, segregação contábil realista de taxas (exchange-reported vs fallback estimado de 0.10%) com dedução estrita no Net PnL, rastreamento determinístico de slippage por fill em USDT e bps com metodologia de não dupla contagem (já embutido no fill price), e cálculo auditado de métricas derivadas (profit factor 999.99 para ausência de perdas, average win/loss, expectancy). Base de dados de S1 preservada intacta em `data/finbot_testnet_soak.sqlite3` (134 ciclos, 8 fills, 4 trades fechados, 0 UNKNOWN, 0 orphan, 0 API errors, posição NONE). Protocolo de deploy do S2 (24 horas supervisionadas) no PC Forte com banco próprio `data/finbot_testnet_soak_s2.sqlite3` documentado no `RUNBOOK.md`. Formalização arquitetural do ADR D040 em `DECISIONS.md`. 420 testes automatizados passando com 100% de sucesso em `.venv` e `.venv-research`. Zero ordens reais enviadas (`PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`). PC Forte e Paper Soak intocados.
 
 ## Próxima etapa (NEXT)
-FASE 8.4C2B — Execução Operacional do Preview e Ordem na Testnet:
-1. Executar o comando read-only: `python -m finbot.testnet_order_validation` para conferência prévia dos valores calculados na Testnet oficial.
-2. Após revisão do operador, executar a ordem assistida via `python -m finbot.testnet_order_validation --confirm-testnet-order` e verificar o preenchimento e a reconciliação.
+FASE 8.4C2E / S2 — Execução Supervisionada de 24 Horas do Testnet Soak no PC Forte:
+1. Operador autoriza e realiza o push do código para o GitHub (`git push origin main`).
+2. No PC Forte, executar `git pull origin main` e validar integridade via `python -m unittest discover tests`.
+3. Executar preflight check (`python -m finbot.testnet_preflight`).
+4. Executar preview read-only apontando para o banco S2 (`python -m finbot.testnet_soak --db-path data/finbot_testnet_soak_s2.sqlite3`).
+5. Executar ciclo único `--once` com banco S2 para validar inicialização e schema (`python -m finbot.testnet_soak --once --db-path data/finbot_testnet_soak_s2.sqlite3`).
+6. Iniciar a execução contínua supervisionada de 24 horas (`python -m finbot.testnet_soak --continuous --interval-seconds 60 --db-path data/finbot_testnet_soak_s2.sqlite3`).
 
 
 

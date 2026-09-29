@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 import sqlite3
 import sys
+import threading
 import time
 from typing import Any
 
@@ -140,6 +141,10 @@ class TestnetCircuitBreaker:
         self.unreconciled_unknown_count = 0
         logger.info("Circuit breaker reiniciado pelo operador. STOP_NEW_ORDERS = FALSE.")
 
+    @property
+    def unknown_orders_count(self) -> int:
+        return self.unreconciled_unknown_count
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "is_tripped": self.is_tripped,
@@ -206,7 +211,10 @@ class TestnetFinancialMetrics:
     unrealized_pnl: Decimal = Decimal("0.00")
     net_pnl: Decimal = Decimal("0.00")
     fees: Decimal = Decimal("0.00")
+    exchange_reported_fees: Decimal = Decimal("0.00")
+    estimated_fees: Decimal = Decimal("0.00")
     estimated_slippage: Decimal = Decimal("0.00")
+    estimated_slippage_bps: Decimal = Decimal("0.00")
     gross_return_pct: float = 0.0
     net_return_pct: float = 0.0
     max_drawdown_pct: float = 0.0
@@ -250,13 +258,19 @@ class TestnetTradeRecord:
     order_type: str
     requested_quantity: Decimal
     executed_quantity: Decimal
-    limit_price: Decimal | None
-    average_fill_price: Decimal | None
-    notional: Decimal
-    fee: Decimal
-    fee_asset: str | None
+    limit_price: Decimal | None = None
+    average_fill_price: Decimal | None = None
+    notional: Decimal = Decimal("0.00")
+    fee: Decimal = Decimal("0.00")
+    fee_asset: str | None = None
     realized_pnl: Decimal | None = None
     exit_reason: str | None = None
+    reference_price: Decimal | None = None
+    exchange_reported_fee: Decimal = Decimal("0.00")
+    estimated_fee: Decimal = Decimal("0.00")
+    fee_source: str = "EXCHANGE"
+    estimated_slippage_usdt: Decimal = Decimal("0.00")
+    estimated_slippage_bps: Decimal = Decimal("0.00")
 
 
 # =============================================================================
@@ -336,7 +350,13 @@ class TestnetSoakStorage:
                         fee TEXT,
                         fee_asset TEXT,
                         realized_pnl TEXT,
-                        exit_reason TEXT
+                        exit_reason TEXT,
+                        reference_price TEXT,
+                        exchange_reported_fee TEXT,
+                        estimated_fee TEXT,
+                        fee_source TEXT,
+                        estimated_slippage_usdt TEXT,
+                        estimated_slippage_bps TEXT
                     )
                     """
                 )
@@ -353,9 +373,32 @@ class TestnetSoakStorage:
                     )
                     """
                 )
+                self._migrate_db(conn)
         finally:
             if self.db_path != ":memory:":
                 conn.close()
+
+    def _migrate_db(self, conn: sqlite3.Connection) -> None:
+        """Aplica migrações seguras de colunas em bases existentes (preserva S1)."""
+        cursor = conn.execute("PRAGMA table_info(soak_trades)")
+        cols = {row["name"] for row in cursor.fetchall()}
+        new_cols = [
+            ("reference_price", "TEXT"),
+            ("exchange_reported_fee", "TEXT"),
+            ("estimated_fee", "TEXT"),
+            ("fee_source", "TEXT"),
+            ("estimated_slippage_usdt", "TEXT"),
+            ("estimated_slippage_bps", "TEXT"),
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in cols:
+                conn.execute(f"ALTER TABLE soak_trades ADD COLUMN {col_name} {col_type}")
+
+    def close(self) -> None:
+        """Fecha a conexão com o banco se mantida em memória."""
+        if self._memory_conn is not None:
+            self._memory_conn.close()
+            self._memory_conn = None
 
     def save_state(self, key: str, value: Any) -> None:
         conn = self._get_connection()
@@ -448,12 +491,21 @@ class TestnetSoakStorage:
                     INSERT INTO soak_trades (
                         client_order_id, exchange_order_id, timestamp, symbol, side,
                         order_type, requested_quantity, executed_quantity, limit_price,
-                        average_fill_price, notional, fee, fee_asset, realized_pnl, exit_reason
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        average_fill_price, notional, fee, fee_asset, realized_pnl, exit_reason,
+                        reference_price, exchange_reported_fee, estimated_fee, fee_source,
+                        estimated_slippage_usdt, estimated_slippage_bps
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(client_order_id) DO UPDATE SET
                         executed_quantity = excluded.executed_quantity,
                         average_fill_price = excluded.average_fill_price,
-                        realized_pnl = excluded.realized_pnl
+                        realized_pnl = excluded.realized_pnl,
+                        fee = excluded.fee,
+                        reference_price = excluded.reference_price,
+                        exchange_reported_fee = excluded.exchange_reported_fee,
+                        estimated_fee = excluded.estimated_fee,
+                        fee_source = excluded.fee_source,
+                        estimated_slippage_usdt = excluded.estimated_slippage_usdt,
+                        estimated_slippage_bps = excluded.estimated_slippage_bps
                     """,
                     (
                         trade.client_order_id,
@@ -471,6 +523,12 @@ class TestnetSoakStorage:
                         trade.fee_asset,
                         str(trade.realized_pnl) if trade.realized_pnl is not None else None,
                         trade.exit_reason,
+                        str(trade.reference_price) if trade.reference_price is not None else None,
+                        str(trade.exchange_reported_fee) if trade.exchange_reported_fee is not None else "0.00",
+                        str(trade.estimated_fee) if trade.estimated_fee is not None else "0.00",
+                        trade.fee_source,
+                        str(trade.estimated_slippage_usdt) if trade.estimated_slippage_usdt is not None else "0.00",
+                        str(trade.estimated_slippage_bps) if trade.estimated_slippage_bps is not None else "0.00",
                     ),
                 )
         finally:
@@ -480,9 +538,19 @@ class TestnetSoakStorage:
     def list_trades(self) -> list[TestnetTradeRecord]:
         conn = self._get_connection()
         try:
+            def _parse_dec(val: Any, default: Decimal | None = None) -> Decimal | None:
+                if val is None or val == "" or val == "None":
+                    return default
+                try:
+                    return Decimal(str(val))
+                except Exception:
+                    return default
+
             cursor = conn.execute("SELECT * FROM soak_trades ORDER BY id ASC")
             trades: list[TestnetTradeRecord] = []
             for r in cursor.fetchall():
+                keys = r.keys()
+                fee_val = _parse_dec(r["fee"], Decimal("0.00")) or Decimal("0.00")
                 trades.append(
                     TestnetTradeRecord(
                         client_order_id=r["client_order_id"],
@@ -491,15 +559,21 @@ class TestnetSoakStorage:
                         symbol=r["symbol"],
                         side=r["side"],
                         order_type=r["order_type"],
-                        requested_quantity=Decimal(r["requested_quantity"]),
-                        executed_quantity=Decimal(r["executed_quantity"]),
-                        limit_price=Decimal(r["limit_price"]) if r["limit_price"] is not None else None,
-                        average_fill_price=Decimal(r["average_fill_price"]) if r["average_fill_price"] is not None else None,
-                        notional=Decimal(r["notional"]),
-                        fee=Decimal(r["fee"] or "0"),
+                        requested_quantity=_parse_dec(r["requested_quantity"], Decimal("0.00")) or Decimal("0.00"),
+                        executed_quantity=_parse_dec(r["executed_quantity"], Decimal("0.00")) or Decimal("0.00"),
+                        limit_price=_parse_dec(r["limit_price"]),
+                        average_fill_price=_parse_dec(r["average_fill_price"]),
+                        notional=_parse_dec(r["notional"], Decimal("0.00")) or Decimal("0.00"),
+                        fee=fee_val,
                         fee_asset=r["fee_asset"],
-                        realized_pnl=Decimal(r["realized_pnl"]) if r["realized_pnl"] is not None else None,
+                        realized_pnl=_parse_dec(r["realized_pnl"]),
                         exit_reason=r["exit_reason"],
+                        reference_price=_parse_dec(r["reference_price"]) if "reference_price" in keys else None,
+                        exchange_reported_fee=_parse_dec(r["exchange_reported_fee"], Decimal("0.00")) if "exchange_reported_fee" in keys else Decimal("0.00"),
+                        estimated_fee=_parse_dec(r["estimated_fee"], Decimal("0.00")) if "estimated_fee" in keys else Decimal("0.00"),
+                        fee_source=r["fee_source"] if "fee_source" in keys and r["fee_source"] is not None else ("EXCHANGE" if fee_val > Decimal("0") else "ZERO"),
+                        estimated_slippage_usdt=_parse_dec(r["estimated_slippage_usdt"], Decimal("0.00")) if "estimated_slippage_usdt" in keys else Decimal("0.00"),
+                        estimated_slippage_bps=_parse_dec(r["estimated_slippage_bps"], Decimal("0.00")) if "estimated_slippage_bps" in keys else Decimal("0.00"),
                     )
                 )
             return trades
@@ -542,12 +616,18 @@ class TestnetSoakStorage:
                     "unrealized_pnl": str(fin_metrics.unrealized_pnl),
                     "net_pnl": str(fin_metrics.net_pnl),
                     "fees": str(fin_metrics.fees),
+                    "exchange_reported_fees": str(fin_metrics.exchange_reported_fees),
+                    "estimated_fees": str(fin_metrics.estimated_fees),
                     "estimated_slippage": str(fin_metrics.estimated_slippage),
+                    "estimated_slippage_bps": str(fin_metrics.estimated_slippage_bps),
                     "gross_return_pct": fin_metrics.gross_return_pct,
                     "net_return_pct": fin_metrics.net_return_pct,
                     "max_drawdown_pct": fin_metrics.max_drawdown_pct,
                     "win_rate_pct": fin_metrics.win_rate_pct,
                     "profit_factor": fin_metrics.profit_factor,
+                    "average_win": str(fin_metrics.average_win) if fin_metrics.average_win is not None else None,
+                    "average_loss": str(fin_metrics.average_loss) if fin_metrics.average_loss is not None else None,
+                    "expectancy": str(fin_metrics.expectancy) if fin_metrics.expectancy is not None else None,
                     "total_trades": fin_metrics.total_trades,
                     "closed_trades": fin_metrics.closed_trades,
                     "first_trade_at": fin_metrics.first_trade_at,
@@ -675,6 +755,182 @@ def verify_testnet_soak_sentries(
 
 
 # =============================================================================
+# STATUS REAL DO RUNNER & HEARTBEAT (OBSERVABILIDADE FIDEDIGNA)
+# =============================================================================
+
+def determine_runner_status(
+    storage: TestnetSoakStorage,
+    circuit_breaker: TestnetCircuitBreaker | None = None,
+    heartbeat_timeout_seconds: float = 180.0,
+    now: datetime | None = None,
+) -> str:
+    """Determina o status operacional fidedigno do runner do Soak.
+
+    Estados:
+    - CIRCUIT_BREAKER_TRIPPED: Disjuntor de segurança armado (novas ordens travadas).
+    - RUNNING: Runner em execução ativa com heartbeat recente (dentro do timeout).
+    - STOPPED: Encerramento explícito (Ctrl+C / normal) ou heartbeat expirado/stale.
+    - READY/IDLE: Antes de qualquer execução ou estado ocioso sem processos ativos.
+    """
+    if circuit_breaker and circuit_breaker.is_tripped:
+        return "CIRCUIT_BREAKER_TRIPPED"
+
+    latest = storage.get_latest_metrics()
+    runner_state = storage.get_state("runner_status", None)
+    last_hb_str = storage.get_state("last_heartbeat", None) or storage.get_state("last_cycle_at", None)
+
+    if latest is None and runner_state is None and last_hb_str is None:
+        return "READY/IDLE"
+
+    if runner_state == "STOPPED":
+        return "STOPPED"
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    # Se runner_state estiver marcado como RUNNING ou se houver heartbeat registrado
+    if last_hb_str:
+        try:
+            hb_dt = datetime.fromisoformat(last_hb_str)
+            if hb_dt.tzinfo is None:
+                hb_dt = hb_dt.replace(tzinfo=timezone.utc)
+            elapsed = (now - hb_dt).total_seconds()
+            if runner_state == "RUNNING" and elapsed <= heartbeat_timeout_seconds:
+                return "RUNNING"
+            else:
+                # Heartbeat expirado ou ausência de status explícito RUNNING fresco -> STOPPED
+                return "STOPPED"
+        except Exception:
+            return "STOPPED"
+
+    return "READY/IDLE"
+
+
+# =============================================================================
+# RESTART SEGURO (RECONCILIAÇÃO E RECONSTRUÇÃO PRÉVIA A QUALQUER ORDEM)
+# =============================================================================
+
+def reconcile_pre_cycle_state(
+    config: Config,
+    storage: TestnetSoakStorage,
+    order_storage: LiveOrderStorage,
+    adapter: ExchangeOrderAdapter,
+    circuit_breaker: TestnetCircuitBreaker,
+    now_iso: str | None = None,
+) -> tuple[TestnetPosition, bool, int]:
+    """Executa a reconciliação prévia obrigatória antes de qualquer decisão da estratégia.
+
+    Garante:
+    1. Carrega checkpoint anterior;
+    2. Reconcilia todas as ordens não terminais;
+    3. Reconstrói a posição local a partir dos trades confirmados;
+    4. Compara com os saldos reais da Testnet (se disponíveis no adapter);
+    5. Dispara circuit breaker se houver ordem UNKNOWN não resolvida ou divergência de saldo;
+    6. Retorna (posição, can_proceed, reconciliations_count).
+    Nenhum CREATE automático é permitido antes desta validação.
+    """
+    if now_iso is None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+    # 1. Carrega ordens pendentes/não terminais
+    unreconciled = order_storage.get_unreconciled_orders()
+    non_terminal_statuses = {
+        OrderStatus.PENDING_SUBMISSION,
+        OrderStatus.SUBMITTED,
+        OrderStatus.ACKNOWLEDGED,
+        OrderStatus.PARTIALLY_FILLED,
+        OrderStatus.CANCEL_PENDING,
+        OrderStatus.UNKNOWN,
+    }
+
+    candidates_to_reconcile = list(unreconciled)
+    reconciliations_count = 0
+
+    # 2. Reconcilia ordens não terminais com a exchange
+    for unrec in candidates_to_reconcile:
+        cid = unrec["client_order_id"]
+        reconciliations_count += 1
+        try:
+            fetched = adapter.fetch_order(config.symbol, unrec.get("exchange_order_id"), cid)
+            if fetched is not None:
+                order_storage.update_order_status(
+                    client_order_id=cid,
+                    status=fetched.status,
+                    updated_at=now_iso,
+                    exchange_order_id=fetched.exchange_order_id,
+                    executed_quantity=fetched.executed_quantity,
+                    cumulative_quote_quantity=fetched.cumulative_quote_quantity,
+                    average_price=fetched.average_price,
+                )
+                logger.info("Ordem pendente reconciliada no restart: %s -> %s", cid, fetched.status.value)
+
+                # Se preencheu, assegura registro no histórico de trades do soak
+                if fetched.status == OrderStatus.FILLED:
+                    existing_trades = {t.client_order_id for t in storage.list_trades()}
+                    if cid not in existing_trades:
+                        rep_fee = fetched.fee or Decimal("0.00")
+                        trade_rec = TestnetTradeRecord(
+                            client_order_id=fetched.client_order_id,
+                            exchange_order_id=fetched.exchange_order_id,
+                            timestamp=now_iso,
+                            symbol=fetched.symbol,
+                            side=fetched.side,
+                            order_type=fetched.order_type,
+                            requested_quantity=fetched.requested_quantity,
+                            executed_quantity=fetched.executed_quantity,
+                            limit_price=fetched.limit_price,
+                            average_fill_price=fetched.average_fill_price,
+                            notional=fetched.cumulative_quote_quantity,
+                            fee=rep_fee,
+                            fee_asset=fetched.fee_asset,
+                            exchange_reported_fee=rep_fee,
+                            estimated_fee=Decimal("0.00"),
+                            fee_source="EXCHANGE" if rep_fee > Decimal("0.00") else "ZERO",
+                        )
+                        storage.record_trade(trade_rec)
+            else:
+                circuit_breaker.record_unknown_order(cid)
+                logger.warning("Ordem não localizada na exchange (UNKNOWN): %s", cid)
+        except Exception as exc:
+            circuit_breaker.record_unknown_order(cid)
+            logger.error("Erro ao reconciliar ordem no restart: %s (%s)", cid, exc)
+
+    # 3. Reconstrói a posição local a partir do histórico de trades
+    trades = storage.list_trades()
+    _, reconstructed_pos = recalculate_financial_metrics(
+        trades=trades,
+        current_price=Decimal("60000.00"),  # Preço base para reconstrução de inventário
+        strategy_capital=Decimal(str(config.testnet_strategy_capital)),
+    )
+    storage.save_position(reconstructed_pos)
+
+    # 4. Compara com saldos da exchange (se adapter suportar get_balances)
+    if hasattr(adapter, "get_balances"):
+        try:
+            balances = adapter.get_balances()
+            if isinstance(balances, dict):
+                btc_data = balances.get("BTC")
+                if isinstance(btc_data, dict):
+                    btc_free = Decimal(str(btc_data.get("free", "0.0")))
+                elif btc_data is not None:
+                    btc_free = Decimal(str(getattr(btc_data, "free", 0.0)))
+                else:
+                    btc_free = Decimal("0.0")
+
+                # Se posição local diz LONG com quantidade Q, verificar se há BTC livre compatível
+                if reconstructed_pos.side == "LONG" and reconstructed_pos.quantity > Decimal("0"):
+                    if btc_free < (reconstructed_pos.quantity * Decimal("0.99")):
+                        circuit_breaker.record_balance_divergence(
+                            f"Posição local LONG ({reconstructed_pos.quantity} BTC), mas saldo livre na Testnet é {btc_free} BTC"
+                        )
+        except Exception as exc:
+            logger.warning("Não foi possível conferir saldos da Testnet no restart: %s", exc)
+
+    can_proceed = not circuit_breaker.is_tripped
+    return reconstructed_pos, can_proceed, reconciliations_count
+
+
+# =============================================================================
 # CÁLCULOS FINANCEIROS E DE MÉTRICAS (PURA / DETERMINÍSTICA)
 # =============================================================================
 
@@ -683,12 +939,19 @@ def recalculate_financial_metrics(
     current_price: Decimal,
     strategy_capital: Decimal = DEFAULT_STRATEGY_CAPITAL,
     observation_period_seconds: float = 0.0,
+    default_fee_rate: Decimal = Decimal("0.0010"),
 ) -> tuple[TestnetFinancialMetrics, TestnetPosition]:
     """Recalcula o estado financeiro da estratégia a partir dos trades reais executados na Testnet.
 
     Garante:
-    - executed_quantity == 0 NÃO afeta PnL nem preço médio.
-    - Preserva o capital normalizado (strategy_capital) independente do saldo da exchange.
+    - executed_quantity == 0 NÃO afeta PnL nem preço médio (ordem cancelada sem fill não afeta nada).
+    - Preserva o capital normalizado (strategy_capital) independente do saldo massivo da exchange.
+    - Contabilização segregada de taxas: EXCHANGE_REPORTED_FEES e ESTIMATED_FEES.
+    - Contabilização de slippage por fill (BUY: fill - ref; SELL: ref - fill) em USDT e bps.
+    - Slippage NÃO é duplicado no NET_PNL: fill_price já determina os fluxos reais de caixa.
+    - Posições abertas (open trades) não entram na contagem de trades fechados (closed_trades).
+    - Preenchimentos parciais são contabilizados pela quantidade real executada e proporção de custo.
+    - PnL não realizado (unrealized_pnl) permanece rigorosamente separado de PnL realizado.
     """
     cash = strategy_capital
     pos_qty = Decimal("0.00000000")
@@ -697,8 +960,12 @@ def recalculate_financial_metrics(
     entry_ts = ""
 
     realized_pnl = Decimal("0.00")
-    total_fees = Decimal("0.00")
-    total_slippage = Decimal("0.00")
+    total_effective_fees = Decimal("0.00")
+    total_reported_fees = Decimal("0.00")
+    total_estimated_fees = Decimal("0.00")
+    total_slippage_usdt = Decimal("0.00")
+    total_slippage_bps_weighted = Decimal("0.00")
+    total_slippage_notional = Decimal("0.00")
 
     closed_trades = 0
     winning_trades = 0
@@ -713,31 +980,68 @@ def recalculate_financial_metrics(
     max_drawdown = 0.0
 
     for t in trades:
-        # Se ordem não preencheu, ignora para efeitos financeiros
+        # Se ordem não preencheu (exec_qty == 0), ignora para efeitos financeiros
         if t.executed_quantity == Decimal("0"):
+            continue
+
+        fill_px = t.average_fill_price
+        if fill_px is None or fill_px <= Decimal("0"):
             continue
 
         if first_trade_at is None:
             first_trade_at = t.timestamp
         last_trade_at = t.timestamp
 
-        fee = t.fee
-        total_fees += fee
+        trade_notional = t.executed_quantity * fill_px
 
-        fill_px = t.average_fill_price
-        if fill_px is None or fill_px <= Decimal("0"):
-            continue
+        # 1. Contabilização segregada de Fees
+        rep_fee = t.exchange_reported_fee
+        est_fee = t.estimated_fee
+        if rep_fee > Decimal("0.00"):
+            effective_fee = rep_fee
+            total_reported_fees += rep_fee
+        elif est_fee > Decimal("0.00"):
+            effective_fee = est_fee
+            total_estimated_fees += est_fee
+        elif t.fee > Decimal("0.00"):
+            effective_fee = t.fee
+            total_reported_fees += t.fee
+        else:
+            effective_fee = Decimal("0.00")
 
-        # Slippage estimado: diferença entre limite/esperado e fill real
-        if t.limit_price is not None and t.limit_price > Decimal("0"):
+        total_effective_fees += effective_fee
+
+        # 2. Contabilização de Slippage
+        slip_usdt = t.estimated_slippage_usdt
+        slip_bps = t.estimated_slippage_bps
+
+        if slip_usdt == Decimal("0.00") and t.reference_price is not None and t.reference_price > Decimal("0"):
+            ref_px = t.reference_price
             if t.side == "BUY":
-                slip = (fill_px - t.limit_price) * t.executed_quantity
-            else:
-                slip = (t.limit_price - fill_px) * t.executed_quantity
-            total_slippage += slip
+                slip_usdt = (fill_px - ref_px) * t.executed_quantity
+                slip_bps = ((fill_px - ref_px) / ref_px) * Decimal("10000")
+            elif t.side == "SELL":
+                slip_usdt = (ref_px - fill_px) * t.executed_quantity
+                slip_bps = ((ref_px - fill_px) / ref_px) * Decimal("10000")
+        elif slip_usdt == Decimal("0.00") and t.limit_price is not None and t.limit_price > Decimal("0"):
+            lim_px = t.limit_price
+            if t.side == "BUY":
+                slip_usdt = (fill_px - lim_px) * t.executed_quantity
+                slip_bps = ((fill_px - lim_px) / lim_px) * Decimal("10000")
+            elif t.side == "SELL":
+                slip_usdt = (lim_px - fill_px) * t.executed_quantity
+                slip_bps = ((lim_px - fill_px) / lim_px) * Decimal("10000")
 
+        total_slippage_usdt += slip_usdt
+        if trade_notional > Decimal("0"):
+            total_slippage_notional += trade_notional
+            total_slippage_bps_weighted += (slip_bps * trade_notional)
+
+        # 3. Impacto Financeiro em Caixa e Posição (COM DEDUÇÃO DE TAXAS)
+        # Nota metodológica: Slippage NÃO é deduzido novamente aqui porque o preço fill_px
+        # já é o valor real da transação que define a saída/entrada do caixa.
         if t.side == "BUY":
-            cost = (t.executed_quantity * fill_px) + fee
+            cost = (t.executed_quantity * fill_px) + effective_fee
             cash -= cost
             pos_qty += t.executed_quantity
             pos_cost += cost
@@ -746,13 +1050,28 @@ def recalculate_financial_metrics(
 
         elif t.side == "SELL":
             gross_proceeds = t.executed_quantity * fill_px
-            net_proceeds = gross_proceeds - fee
+            net_proceeds = gross_proceeds - effective_fee
             cash += net_proceeds
 
-            # PnL realizado
-            trade_pnl = t.realized_pnl
-            if trade_pnl is None:
-                trade_pnl = net_proceeds - pos_cost
+            # PnL realizado do trade fechado
+            if pos_cost > Decimal("0"):
+                if pos_qty > Decimal("0") and t.executed_quantity < pos_qty:
+                    portion_cost = (t.executed_quantity / pos_qty) * pos_cost
+                    trade_pnl = net_proceeds - portion_cost
+                    pos_cost -= portion_cost
+                    pos_qty -= t.executed_quantity
+                else:
+                    trade_pnl = net_proceeds - pos_cost
+                    pos_qty = Decimal("0.00000000")
+                    pos_cost = Decimal("0.00")
+                    entry_px = Decimal("0.00")
+                    entry_ts = ""
+            else:
+                trade_pnl = net_proceeds
+                pos_qty = Decimal("0.00000000")
+                pos_cost = Decimal("0.00")
+                entry_px = Decimal("0.00")
+                entry_ts = ""
 
             realized_pnl += trade_pnl
             closed_trades += 1
@@ -764,11 +1083,6 @@ def recalculate_financial_metrics(
                 losing_trades += 1
                 sum_losses += abs(trade_pnl)
 
-            pos_qty = Decimal("0.00000000")
-            pos_cost = Decimal("0.00")
-            entry_px = Decimal("0.00")
-            entry_ts = ""
-
         # Tracking de drawdown ponto a ponto
         current_eq = cash + (pos_qty * fill_px)
         if current_eq > peak_equity:
@@ -778,7 +1092,7 @@ def recalculate_financial_metrics(
             if dd > max_drawdown:
                 max_drawdown = dd
 
-    # PnL não realizado da posição aberta atual
+    # PnL não realizado da posição aberta atual (se houver)
     unrealized_pnl = Decimal("0.00")
     if pos_qty > Decimal("0") and current_price > Decimal("0"):
         current_val = pos_qty * current_price
@@ -794,7 +1108,7 @@ def recalculate_financial_metrics(
 
     net_pnl = current_equity - strategy_capital
     net_return_pct = float((net_pnl / strategy_capital) * Decimal("100")) if strategy_capital > Decimal("0") else 0.0
-    gross_return_pct = float(((net_pnl + total_fees) / strategy_capital) * Decimal("100")) if strategy_capital > Decimal("0") else 0.0
+    gross_return_pct = float(((net_pnl + total_effective_fees) / strategy_capital) * Decimal("100")) if strategy_capital > Decimal("0") else 0.0
 
     win_rate_pct = round((winning_trades / closed_trades) * 100.0, 2) if closed_trades > 0 else 0.0
     loss_rate_pct = round((losing_trades / closed_trades) * 100.0, 2) if closed_trades > 0 else 0.0
@@ -810,6 +1124,12 @@ def recalculate_financial_metrics(
         loss_val = avg_loss or Decimal("0.00")
         expectancy = (wr * avg_win) - (lr * loss_val)
 
+    avg_slippage_bps = (
+        (total_slippage_bps_weighted / total_slippage_notional).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if total_slippage_notional > Decimal("0")
+        else Decimal("0.00")
+    )
+
     fin_metrics = TestnetFinancialMetrics(
         testnet_strategy_capital=strategy_capital,
         starting_equity=strategy_capital,
@@ -820,8 +1140,11 @@ def recalculate_financial_metrics(
         realized_pnl=realized_pnl.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         unrealized_pnl=unrealized_pnl.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         net_pnl=net_pnl.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-        fees=total_fees.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-        estimated_slippage=total_slippage.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        fees=total_effective_fees.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        exchange_reported_fees=total_reported_fees.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        estimated_fees=total_estimated_fees.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        estimated_slippage=total_slippage_usdt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        estimated_slippage_bps=avg_slippage_bps,
         gross_return_pct=round(gross_return_pct, 4),
         net_return_pct=round(net_return_pct, 4),
         max_drawdown_pct=round(max_drawdown, 2),
@@ -950,31 +1273,49 @@ def execute_testnet_soak_cycle(
             message=f"Sentry error: {err}",
         )
 
-    # 3. RECONCILIAÇÃO PRÉVIA MANDATÓRIA APÓS RESTART
-    # Nunca emitir ordens se houver ordens abertas ou UNKNOWN pendentes de reconciliação
-    unreconciled = order_storage.get_unreconciled_orders()
-    for unrec in unreconciled:
-        cid = unrec["client_order_id"]
-        reconciliations += 1
-        try:
-            fetched = adapter.fetch_order(config.symbol, unrec.get("exchange_order_id"), cid)
-            if fetched is not None:
-                order_storage.update_order_status(
-                    client_order_id=cid,
-                    status=fetched.status,
-                    updated_at=now_iso,
-                    exchange_order_id=fetched.exchange_order_id,
-                    executed_quantity=fetched.executed_quantity,
-                    cumulative_quote_quantity=fetched.cumulative_quote_quantity,
-                    average_price=fetched.average_price,
-                )
-                logger.info("Ordem pendente reconciliada com sucesso: %s -> %s", cid, fetched.status.value)
-            else:
-                circuit_breaker.record_unknown_order(cid)
-                logger.warning("Ordem pendente não localizada na exchange (UNKNOWN): %s", cid)
-        except Exception as exc:
-            circuit_breaker.record_unknown_order(cid)
-            logger.error("Erro ao reconciliar ordem pendente %s: %s", cid, exc)
+    # 3. RECONCILIAÇÃO PRÉVIA MANDATÓRIA APÓS RESTART / PRE-CYCLE
+    # Reconcilia ordens não terminais, reconstrói inventário e compara com Testnet
+    reconstructed_pos, can_proceed, pre_reconciliations = reconcile_pre_cycle_state(
+        config=config,
+        storage=storage,
+        order_storage=order_storage,
+        adapter=adapter,
+        circuit_breaker=circuit_breaker,
+        now_iso=now_iso,
+    )
+    reconciliations += pre_reconciliations
+
+    if not can_proceed or circuit_breaker.is_tripped:
+        trades = storage.list_trades()
+        fin_m, _ = recalculate_financial_metrics(trades, Decimal("60000.00"), Decimal(str(config.testnet_strategy_capital)), uptime_sec)
+        op_m = TestnetOperationalMetrics(
+            uptime_seconds=uptime_sec,
+            start_time=start_time_iso,
+            total_cycles=total_cycles,
+            failed_cycles=failed_cycles,
+            api_errors=api_errors,
+            unknown_orders=circuit_breaker.unknown_orders_count,
+            reconciliations=reconciliations,
+        )
+        status_label = "BLOCKED_CIRCUIT_BREAKER" if circuit_breaker.is_tripped else "BLOCKED_PRE_CYCLE_RECONCILIATION"
+        msg_label = (
+            f"Novas ordens bloqueadas por Circuit Breaker: {circuit_breaker.trip_reason}"
+            if circuit_breaker.is_tripped
+            else f"Reconciliação prévia bloqueou ciclo: {circuit_breaker.trip_reason}"
+        )
+        return TestnetSoakCycleResult(
+            timestamp=now_iso,
+            cycle_status=status_label,
+            signal=Signal.HOLD,
+            closed_candle_time="",
+            closed_candle_timestamp=0,
+            executed_order=None,
+            circuit_breaker_tripped=circuit_breaker.is_tripped,
+            circuit_breaker_reason=circuit_breaker.trip_reason,
+            operational_metrics=op_m,
+            financial_metrics=fin_m,
+            message=msg_label,
+        )
 
     # 4. Obtenção de Market Data (público)
     try:
@@ -1222,6 +1563,22 @@ def execute_testnet_soak_cycle(
                                 cycle_status = "BUY_EXECUTED"
                                 cycle_message = f"BUY_FILLED @ {reconciled.average_fill_price} USDT"
 
+                                fill_price = reconciled.average_fill_price or current_price
+                                qty = reconciled.executed_quantity
+                                notional = reconciled.cumulative_quote_quantity or (qty * fill_price)
+                                rep_fee = reconciled.fee if (reconciled.fee is not None and reconciled.fee > Decimal("0.00")) else None
+                                if rep_fee is not None:
+                                    eff_fee = rep_fee
+                                    fee_src = "EXCHANGE"
+                                    est_fee = Decimal("0.00")
+                                else:
+                                    eff_fee = notional * Decimal("0.0010")
+                                    fee_src = "ESTIMATED"
+                                    est_fee = eff_fee
+
+                                slip_usdt = (fill_price - current_price) * qty
+                                slip_bps = ((fill_price - current_price) / current_price * Decimal("10000")) if current_price > Decimal("0") else Decimal("0.00")
+
                                 trade_rec = TestnetTradeRecord(
                                     client_order_id=reconciled.client_order_id,
                                     exchange_order_id=reconciled.exchange_order_id,
@@ -1233,9 +1590,15 @@ def execute_testnet_soak_cycle(
                                     executed_quantity=reconciled.executed_quantity,
                                     limit_price=reconciled.limit_price,
                                     average_fill_price=reconciled.average_fill_price,
-                                    notional=reconciled.cumulative_quote_quantity,
-                                    fee=reconciled.fee or Decimal("0.00"),
-                                    fee_asset=reconciled.fee_asset,
+                                    notional=notional,
+                                    fee=eff_fee,
+                                    fee_asset=reconciled.fee_asset or "USDT",
+                                    exchange_reported_fee=rep_fee,
+                                    estimated_fee=est_fee,
+                                    fee_source=fee_src,
+                                    reference_price=current_price,
+                                    estimated_slippage_usdt=slip_usdt,
+                                    estimated_slippage_bps=slip_bps,
                                 )
                                 storage.record_trade(trade_rec)
                             elif reconciled.status == OrderStatus.UNKNOWN:
@@ -1354,8 +1717,24 @@ def execute_testnet_soak_cycle(
                                     cycle_status = "SELL_EXECUTED"
                                     cycle_message = f"SELL_FILLED @ {reconciled.average_fill_price} USDT"
 
-                                    gross_proc = reconciled.executed_quantity * (reconciled.average_fill_price or current_price)
-                                    realized_pnl = gross_proc - current_position.cost_basis - (reconciled.fee or Decimal("0"))
+                                    fill_price = reconciled.average_fill_price or current_price
+                                    qty = reconciled.executed_quantity
+                                    notional = reconciled.cumulative_quote_quantity or (qty * fill_price)
+                                    rep_fee = reconciled.fee if (reconciled.fee is not None and reconciled.fee > Decimal("0.00")) else None
+                                    if rep_fee is not None:
+                                        eff_fee = rep_fee
+                                        fee_src = "EXCHANGE"
+                                        est_fee = Decimal("0.00")
+                                    else:
+                                        eff_fee = notional * Decimal("0.0010")
+                                        fee_src = "ESTIMATED"
+                                        est_fee = eff_fee
+
+                                    slip_usdt = (current_price - fill_price) * qty
+                                    slip_bps = ((current_price - fill_price) / current_price * Decimal("10000")) if current_price > Decimal("0") else Decimal("0.00")
+
+                                    gross_proc = qty * fill_price
+                                    realized_pnl = gross_proc - current_position.cost_basis - eff_fee
 
                                     trade_rec = TestnetTradeRecord(
                                         client_order_id=reconciled.client_order_id,
@@ -1368,11 +1747,17 @@ def execute_testnet_soak_cycle(
                                         executed_quantity=reconciled.executed_quantity,
                                         limit_price=reconciled.limit_price,
                                         average_fill_price=reconciled.average_fill_price,
-                                        notional=reconciled.cumulative_quote_quantity,
-                                        fee=reconciled.fee or Decimal("0.00"),
-                                        fee_asset=reconciled.fee_asset,
+                                        notional=notional,
+                                        fee=eff_fee,
+                                        fee_asset=reconciled.fee_asset or "USDT",
                                         realized_pnl=realized_pnl,
                                         exit_reason=signal_reason,
+                                        exchange_reported_fee=rep_fee,
+                                        estimated_fee=est_fee,
+                                        fee_source=fee_src,
+                                        reference_price=current_price,
+                                        estimated_slippage_usdt=slip_usdt,
+                                        estimated_slippage_bps=slip_bps,
                                     )
                                     storage.record_trade(trade_rec)
                                 elif reconciled.status == OrderStatus.UNKNOWN:
@@ -1423,6 +1808,8 @@ def execute_testnet_soak_cycle(
     storage.save_state("partial_fills", partial_fills)
     storage.save_state("last_processed_candle_ts", latest_closed_candle.timestamp)
     storage.save_state("circuit_breaker", circuit_breaker.to_dict())
+    storage.save_state("last_heartbeat", now_iso)
+    storage.save_state("last_cycle_at", now_iso)
 
     # 9. Recalcula PnL e Métricas Financeiras
     trades = storage.list_trades()
@@ -1568,6 +1955,7 @@ def print_testnet_soak_status(storage: TestnetSoakStorage | None = None, db_path
     cb_data = storage.get_state("circuit_breaker", {})
     cb = TestnetCircuitBreaker.from_dict(cb_data) if isinstance(cb_data, dict) else TestnetCircuitBreaker()
     pos = storage.get_position()
+    status_str = determine_runner_status(storage, cb)
 
     print("=" * 65)
     print("TESTNET_SOAK_STATUS")
@@ -1575,7 +1963,7 @@ def print_testnet_soak_status(storage: TestnetSoakStorage | None = None, db_path
 
     if latest is None:
         print("Nenhuma métrica persistida ainda no banco de dados.")
-        print(f"STATUS                         : STOPPED (Sem histórico em {db_path})")
+        print(f"STATUS                         : {status_str} (Sem histórico em {db_path})")
         print(f"CIRCUIT_BREAKER_TRIPPED        : {'YES' if cb.is_tripped else 'NO'}")
         print("PRODUCTION_WRITE_ENABLED       : NO")
         print("=" * 65)
@@ -1584,8 +1972,6 @@ def print_testnet_soak_status(storage: TestnetSoakStorage | None = None, db_path
     det = latest.get("details", {})
     op = det.get("operational", {})
     fin = det.get("financial", {})
-
-    status_str = "CIRCUIT_BREAKER_TRIPPED" if cb.is_tripped else "READY/IDLE"
 
     uptime_sec = float(latest.get("uptime_seconds", 0.0))
     hours = int(uptime_sec // 3600)
@@ -1613,12 +1999,20 @@ def print_testnet_soak_status(storage: TestnetSoakStorage | None = None, db_path
     print(f"REALIZED_PNL                   : {fin.get('realized_pnl', '0.00')} USDT")
     print(f"UNREALIZED_PNL                 : {fin.get('unrealized_pnl', '0.00')} USDT")
     print(f"NET_PNL                        : {latest.get('net_pnl', '0.00')} USDT")
-    print(f"FEES                           : {fin.get('fees', '0.00')} USDT")
-    print(f"ESTIMATED_SLIPPAGE             : {fin.get('estimated_slippage', '0.00')} USDT")
+    print(f"FEES (EXCHANGE_REPORTED)       : {fin.get('exchange_reported_fees', '0.00')} USDT")
+    print(f"FEES (ESTIMATED)               : {fin.get('estimated_fees', '0.00')} USDT")
+    print(f"TOTAL_FEES                     : {fin.get('fees', '0.00')} USDT")
+    print(f"ESTIMATED_SLIPPAGE             : {fin.get('estimated_slippage', '0.00')} USDT ({fin.get('estimated_slippage_bps', '0.00')} bps)")
     print(f"NET_RETURN                     : {latest.get('net_return_pct', 0.0):.2f}%")
     print(f"MAX_DRAWDOWN                   : {latest.get('max_drawdown_pct', 0.0):.2f}%")
     print(f"WIN_RATE                       : {fin.get('win_rate_pct', 0.0):.2f}%")
     print(f"PROFIT_FACTOR                  : {fin.get('profit_factor', 0.0):.2f}")
+    avg_w = fin.get("average_win")
+    avg_l = fin.get("average_loss")
+    exp_v = fin.get("expectancy")
+    print(f"AVERAGE_WIN                    : {avg_w if avg_w is not None else 'N/A'} USDT")
+    print(f"AVERAGE_LOSS                   : {avg_l if avg_l is not None else 'N/A'} USDT")
+    print(f"EXPECTANCY                     : {exp_v if exp_v is not None else 'N/A'} USDT/trade")
     print(f"POSIÇÃO ABERTA                 : {pos.side} ({pos.quantity} BTC)")
 
     print("-" * 65)
@@ -1636,6 +2030,91 @@ def print_testnet_soak_status(storage: TestnetSoakStorage | None = None, db_path
     print("PRODUCTION_ORDERS_SENT         : 0")
     print("PRODUCTION_WRITE_ENABLED       : NO")
     print("=" * 65)
+    return 0
+
+
+# =============================================================================
+# RUNNER CONTÍNUO COM GRACEFUL SHUTDOWN
+# =============================================================================
+
+def run_testnet_soak_continuous(
+    config: Config,
+    storage: TestnetSoakStorage,
+    order_storage: LiveOrderStorage,
+    adapter: ExchangeOrderAdapter,
+    circuit_breaker: TestnetCircuitBreaker,
+    credential_provider: WindowsCredentialProvider | None = None,
+    cycle_interval_seconds: float = 60.0,
+    stop_event: threading.Event | None = None,
+    max_cycles: int | None = None,
+) -> int:
+    """Executa o loop contínuo do Soak com gerenciamento de lifecycle e graceful shutdown.
+
+    Garantias:
+    - Marca runner_status como RUNNING no início e atualiza heartbeat a cada ciclo.
+    - Ao encerrar por Ctrl+C, KeyboardInterrupt, SIGINT/SIGTERM ou normal:
+      * Marca runner_status como STOPPED;
+      * Persiste o último checkpoint de estado;
+      * Preserva posições abertas válidas e ordens UNKNOWN (para reconciliação futura);
+      * Fecha o banco SQLite e conexões adequadamente;
+      * Zero ordens adicionais criadas durante o shutdown.
+    """
+    logger.info("Iniciando runner contínuo do Testnet Soak...")
+    storage.save_state("runner_status", "RUNNING")
+    storage.save_state("last_heartbeat", datetime.now(timezone.utc).isoformat())
+
+    cycles_completed = 0
+    try:
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                logger.info("Sinal de parada detectado via stop_event.")
+                break
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            storage.save_state("runner_status", "RUNNING")
+            storage.save_state("last_heartbeat", now_iso)
+
+            res = execute_testnet_soak_cycle(
+                config=config,
+                storage=storage,
+                order_storage=order_storage,
+                adapter=adapter,
+                circuit_breaker=circuit_breaker,
+                credential_provider=credential_provider,
+            )
+            cycles_completed += 1
+            logger.info("Ciclo Soak #%d: %s | %s", cycles_completed, res.cycle_status, res.message)
+
+            if max_cycles is not None and cycles_completed >= max_cycles:
+                logger.info("Atingido número máximo de ciclos (%d). Encerrando normalmente.", max_cycles)
+                break
+
+            # Aguarda intervalo respeitando stop_event
+            if stop_event is not None:
+                if stop_event.wait(timeout=cycle_interval_seconds):
+                    break
+            else:
+                time.sleep(cycle_interval_seconds)
+
+    except KeyboardInterrupt:
+        print("\n[SHUTDOWN] Interrupção pelo operador (Ctrl+C). Executando encerramento gracioso...")
+        logger.info("KeyboardInterrupt recebido no runner contínuo.")
+    except Exception as exc:
+        print(f"\n[SHUTDOWN] Exceção não tratada no runner: {exc}")
+        logger.error("Exceção no runner contínuo: %s", exc)
+    finally:
+        # Encerramento gracioso
+        shutdown_ts = datetime.now(timezone.utc).isoformat()
+        logger.info("Executando procedimentos de graceful shutdown...")
+        storage.save_state("runner_status", "STOPPED")
+        storage.save_state("last_heartbeat", shutdown_ts)
+        storage.save_state("shutdown_at", shutdown_ts)
+        try:
+            storage.close()
+        except Exception as e:
+            logger.warning("Erro ao fechar storage: %s", e)
+        print("[SHUTDOWN] Runner finalizado com sucesso. STATUS = STOPPED.")
+
     return 0
 
 
@@ -1664,12 +2143,15 @@ def main(argv: list[str] | None = None) -> int:
         cb = TestnetCircuitBreaker.from_dict(cb_data) if isinstance(cb_data, dict) else TestnetCircuitBreaker()
         cb.reset()
         storage.save_state("circuit_breaker", cb.to_dict())
+        storage.close()
         print("Circuit breaker reiniciado com sucesso.")
         return 0
 
     # 2. Relatório de Status
     if args.status:
-        return print_testnet_soak_status(storage=storage, db_path=args.db_path)
+        ret = print_testnet_soak_status(storage=storage, db_path=args.db_path)
+        storage.close()
+        return ret
 
     base_cfg = get_config()
     cfg = Config(
@@ -1686,7 +2168,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # 3. Modo Preview por Padrão (Sem --confirm-testnet-soak)
     if not args.confirm_testnet_soak:
-        return run_testnet_soak_preview(cfg, storage=storage)
+        ret = run_testnet_soak_preview(cfg, storage=storage)
+        storage.close()
+        return ret
 
     # 4. Modo Armado de Execução
     print("=" * 65)
@@ -1696,9 +2180,8 @@ def main(argv: list[str] | None = None) -> int:
     cred_provider = WindowsCredentialProvider.for_environment(BinanceEnvironment.SPOT_TESTNET)
     if not cred_provider.has_binance_credentials():
         print("ERRO CRÍTICO: Credenciais Testnet não encontradas no Windows Credential Manager.")
+        storage.close()
         return 1
-
-    creds = cred_provider.get_binance_credentials()
 
     adapter = BinanceSpotTestnetOrderAdapter(
         credential_provider=cred_provider,
@@ -1710,20 +2193,9 @@ def main(argv: list[str] | None = None) -> int:
     cb = TestnetCircuitBreaker.from_dict(cb_data) if isinstance(cb_data, dict) else TestnetCircuitBreaker()
 
     if args.once:
-        res = execute_testnet_soak_cycle(
-            config=cfg,
-            storage=storage,
-            order_storage=order_storage,
-            adapter=adapter,
-            circuit_breaker=cb,
-            credential_provider=cred_provider,
-        )
-        print(f"Ciclo executado: {res.cycle_status} | {res.message}")
-        return 0
-
-    print("Soak contínuo iniciado. Pressione Ctrl+C para encerrar.")
-    try:
-        while True:
+        storage.save_state("runner_status", "STOPPED")
+        storage.save_state("last_heartbeat", datetime.now(timezone.utc).isoformat())
+        try:
             res = execute_testnet_soak_cycle(
                 config=cfg,
                 storage=storage,
@@ -1732,12 +2204,24 @@ def main(argv: list[str] | None = None) -> int:
                 circuit_breaker=cb,
                 credential_provider=cred_provider,
             )
-            logger.info("Ciclo Soak: %s | %s", res.cycle_status, res.message)
-            time.sleep(60)
-    except KeyboardInterrupt:
-        print("\nSoak interrompido pelo operador.")
+            print(f"Ciclo executado: {res.cycle_status} | {res.message}")
+        finally:
+            storage.save_state("runner_status", "STOPPED")
+            storage.close()
         return 0
+
+    print("Soak contínuo iniciado. Pressione Ctrl+C para encerrar.")
+    return run_testnet_soak_continuous(
+        config=cfg,
+        storage=storage,
+        order_storage=order_storage,
+        adapter=adapter,
+        circuit_breaker=cb,
+        credential_provider=cred_provider,
+        cycle_interval_seconds=60.0,
+    )
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

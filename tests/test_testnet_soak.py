@@ -16,8 +16,11 @@ Testa:
 - Zero chamadas de rede externas
 """
 
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 import io
+from pathlib import Path
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -42,9 +45,12 @@ from finbot.testnet_soak import (
     TestnetSoakSentryError,
     TestnetSoakStorage,
     TestnetTradeRecord,
+    determine_runner_status,
     execute_testnet_soak_cycle,
     print_testnet_soak_status,
     recalculate_financial_metrics,
+    reconcile_pre_cycle_state,
+    run_testnet_soak_continuous,
     run_testnet_soak_preview,
     verify_testnet_soak_sentries,
 )
@@ -562,6 +568,410 @@ class TestTestnetSoak(unittest.TestCase):
         self.assertIn("PRODUCTION_WRITE_ENABLED       : NO", val)
         self.assertNotIn("test_key", val)
         self.assertNotIn("test_secret", val)
+
+
+# =============================================================================
+# 7. TESTES DA FASE 8.4C2E — HARDENING & DEPLOYMENT READINESS
+# =============================================================================
+
+class TestTestnetSoakHardening(unittest.TestCase):
+    """Testes exaustivos das proteções de observabilidade, shutdown, restart, fees e slippage."""
+
+    def setUp(self) -> None:
+        self.storage = TestnetSoakStorage(":memory:")
+        self.order_storage = LiveOrderStorage(":memory:")
+        self.fake_provider = FakeCredentialProvider()
+        self.cfg = Config(
+            trading_mode="live",
+            binance_environment=BinanceEnvironment.SPOT_TESTNET,
+            testnet_execution_enabled=True,
+            live_execution_enabled=False,
+            real_order_submission_enabled=False,
+            testnet_strategy_capital=100.0,
+            testnet_soak_db_path=":memory:",
+            short_window=2,
+            long_window=4,
+            paper_timeframe="1m",
+        )
+
+    # 1. STATUS REAL DO RUNNER & HEARTBEAT
+    def test_runner_status_idle_before_execution(self) -> None:
+        """Antes de qualquer ciclo ou inicialização, status é READY/IDLE."""
+        status = determine_runner_status(self.storage)
+        self.assertEqual(status, "READY/IDLE")
+
+    def test_runner_status_running_with_fresh_heartbeat(self) -> None:
+        """Durante execução ativa com heartbeat recente, status é RUNNING."""
+        now = datetime.now(timezone.utc)
+        self.storage.save_state("runner_status", "RUNNING")
+        self.storage.save_state("last_heartbeat", now.isoformat())
+
+        status = determine_runner_status(self.storage, heartbeat_timeout_seconds=180.0, now=now)
+        self.assertEqual(status, "RUNNING")
+
+    def test_runner_status_stopped_after_shutdown(self) -> None:
+        """Após encerramento normal ou Ctrl+C, status é STOPPED."""
+        self.storage.save_state("runner_status", "STOPPED")
+        status = determine_runner_status(self.storage)
+        self.assertEqual(status, "STOPPED")
+
+    def test_runner_status_stale_heartbeat_shows_stopped(self) -> None:
+        """Runner marcado como RUNNING mas com heartbeat expirado (>180s) deve reportar STOPPED."""
+        now = datetime.now(timezone.utc)
+        old_time = now - timedelta(seconds=300)
+        self.storage.save_state("runner_status", "RUNNING")
+        self.storage.save_state("last_heartbeat", old_time.isoformat())
+
+        status = determine_runner_status(self.storage, heartbeat_timeout_seconds=180.0, now=now)
+        self.assertEqual(status, "STOPPED")
+
+    def test_runner_status_tripped_circuit_breaker(self) -> None:
+        """Se o disjuntor de segurança estiver disparado, status é CIRCUIT_BREAKER_TRIPPED."""
+        cb = TestnetCircuitBreaker()
+        cb.trip("Falha crítica simulada")
+        status = determine_runner_status(self.storage, circuit_breaker=cb)
+        self.assertEqual(status, "CIRCUIT_BREAKER_TRIPPED")
+
+    # 2. SHUTDOWN GRACIOSO
+    def test_graceful_shutdown_persists_checkpoint_and_marks_stopped(self) -> None:
+        """Shutdown gracioso persiste runner_status=STOPPED e timestamps de encerramento."""
+        fake_adapter = FakeExchangeOrderAdapter(environment=BinanceEnvironment.SPOT_TESTNET)
+        cb = TestnetCircuitBreaker()
+
+        # Dispara execução com max_cycles=1 para testar encerramento normal e graceful
+        with patch("finbot.testnet_soak.execute_testnet_soak_cycle") as mock_cycle:
+            mock_cycle.return_value = TestnetSoakCycleResult(
+                timestamp="2026-09-29T12:00:00Z",
+                cycle_status="HOLD",
+                signal=Signal.HOLD,
+                closed_candle_time="12345",
+                closed_candle_timestamp=12345,
+                executed_order=None,
+                circuit_breaker_tripped=False,
+                circuit_breaker_reason="",
+                operational_metrics=TestnetOperationalMetrics(uptime_seconds=1.0),
+                financial_metrics=TestnetFinancialMetrics(testnet_strategy_capital=Decimal("100.00")),
+                message="Mock cycle",
+            )
+            # Usa banco temporário em arquivo para verificar persistência pós-close
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False) as f:
+                tmp_path = f.name
+
+            try:
+                tmp_storage = TestnetSoakStorage(tmp_path)
+                code = run_testnet_soak_continuous(
+                    config=self.cfg,
+                    storage=tmp_storage,
+                    order_storage=self.order_storage,
+                    adapter=fake_adapter,
+                    circuit_breaker=cb,
+                    cycle_interval_seconds=0.01,
+                    max_cycles=1,
+                )
+                self.assertEqual(code, 0)
+                verify_storage = TestnetSoakStorage(tmp_path)
+                self.assertEqual(verify_storage.get_state("runner_status"), "STOPPED")
+                self.assertIsNotNone(verify_storage.get_state("shutdown_at"))
+                verify_storage.close()
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+
+    # 3. RESTART SEGURO (RECONCILIAÇÃO ANTES DE QUALQUER ORDEM)
+    def test_restart_reconciles_non_terminal_orders_before_strategy(self) -> None:
+        """Restart detecta ordem SUBMITTED anterior e reconcilia com a exchange antes do ciclo."""
+        cid = "pending_restart_001"
+        self.order_storage.save_initial_order(
+            correlation_id="corr_001",
+            client_order_id=cid,
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            requested_notional=Decimal("6.00"),
+            status=OrderStatus.SUBMITTED,
+            created_at="2026-09-29T10:00:00Z",
+        )
+        self.order_storage.update_order_status(
+            client_order_id=cid,
+            status=OrderStatus.SUBMITTED,
+            updated_at="2026-09-29T10:00:00Z",
+            exchange_order_id="ex_999",
+        )
+
+        fake_adapter = FakeExchangeOrderAdapter(environment=BinanceEnvironment.SPOT_TESTNET)
+        fake_adapter.orders[cid] = ExchangeOrderResult(
+            client_order_id=cid,
+            exchange_order_id="ex_999",
+            status=OrderStatus.FILLED,
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            cumulative_quote_quantity=Decimal("6.00"),
+            average_price=Decimal("60000.00"),
+            fee=Decimal("0.006"),
+            fee_asset="USDT",
+        )
+        fake_adapter.orders["ex_999"] = fake_adapter.orders[cid]
+
+        cb = TestnetCircuitBreaker()
+        reconstructed_pos, can_proceed, _ = reconcile_pre_cycle_state(
+            config=self.cfg,
+            storage=self.storage,
+            order_storage=self.order_storage,
+            adapter=fake_adapter,
+            circuit_breaker=cb,
+        )
+
+        self.assertTrue(can_proceed)
+        self.assertFalse(cb.is_tripped)
+        # Ordem foi reconciliada e trade foi gravado no banco de soak
+        trades = self.storage.list_trades()
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0].client_order_id, cid)
+        self.assertEqual(reconstructed_pos.side, "LONG")
+        self.assertEqual(reconstructed_pos.quantity, Decimal("0.00010000"))
+
+    def test_restart_trips_circuit_breaker_on_unknown_order(self) -> None:
+        """Restart com ordem pendente que não existe na exchange vira UNKNOWN e trava novos ciclos."""
+        cid = "ghost_order_002"
+        self.order_storage.save_initial_order(
+            correlation_id="corr_002",
+            client_order_id=cid,
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            requested_notional=Decimal("6.00"),
+            status=OrderStatus.SUBMITTED,
+            created_at="2026-09-29T10:00:00Z",
+        )
+        self.order_storage.update_order_status(
+            client_order_id=cid,
+            status=OrderStatus.SUBMITTED,
+            updated_at="2026-09-29T10:00:00Z",
+            exchange_order_id="ex_ghost",
+        )
+
+        fake_adapter = FakeExchangeOrderAdapter(environment=BinanceEnvironment.SPOT_TESTNET)
+        fake_adapter.orders.clear()
+        cb = TestnetCircuitBreaker()
+
+        _, can_proceed, _ = reconcile_pre_cycle_state(
+            config=self.cfg,
+            storage=self.storage,
+            order_storage=self.order_storage,
+            adapter=fake_adapter,
+            circuit_breaker=cb,
+        )
+
+        self.assertFalse(can_proceed)
+        self.assertTrue(cb.is_tripped)
+        self.assertIn("UNKNOWN", cb.trip_reason)
+
+    # 4. CONTABILIZAÇÃO DE FEES (EXCHANGE REPORTED VS ESTIMATED)
+    def test_exchange_reported_fee_accounting(self) -> None:
+        """Quando a exchange reporta fee real, ela é categorizada como EXCHANGE_REPORTED_FEES e descontada do Net PnL."""
+        t_buy = TestnetTradeRecord(
+            client_order_id="buy_01",
+            exchange_order_id="ex_b1",
+            timestamp="2026-09-29T10:00:00Z",
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("60000.00"),
+            notional=Decimal("6.00"),
+            fee=Decimal("0.05"),
+            exchange_reported_fee=Decimal("0.05"),
+            estimated_fee=Decimal("0.00"),
+            fee_source="EXCHANGE",
+        )
+        t_sell = TestnetTradeRecord(
+            client_order_id="sell_01",
+            exchange_order_id="ex_s1",
+            timestamp="2026-09-29T10:01:00Z",
+            symbol="BTC/USDT",
+            side="SELL",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("65000.00"),
+            notional=Decimal("6.50"),
+            fee=Decimal("0.06"),
+            exchange_reported_fee=Decimal("0.06"),
+            estimated_fee=Decimal("0.00"),
+            fee_source="EXCHANGE",
+        )
+
+        fin_m, pos = recalculate_financial_metrics(
+            trades=[t_buy, t_sell],
+            current_price=Decimal("65000.00"),
+            strategy_capital=Decimal("100.00"),
+        )
+
+        # Gross PnL = (65000 - 60000) * 0.0001 = +0.50 USDT
+        # Fees = 0.05 (BUY) + 0.06 (SELL) = 0.11 USDT
+        # Net PnL = 0.50 - 0.11 = +0.39 USDT
+        self.assertEqual(fin_m.exchange_reported_fees, Decimal("0.11"))
+        self.assertEqual(fin_m.estimated_fees, Decimal("0.00"))
+        self.assertEqual(fin_m.fees, Decimal("0.11"))
+        self.assertEqual(fin_m.net_pnl, Decimal("0.39"))
+        self.assertEqual(fin_m.current_equity, Decimal("100.39"))
+
+    def test_estimated_fee_fallback_accounting(self) -> None:
+        """Quando a exchange reporta 0 ou None, taxa estimada (0.10%) é usada e categorizada como ESTIMATED_FEES."""
+        t_buy = TestnetTradeRecord(
+            client_order_id="buy_02",
+            exchange_order_id="ex_b2",
+            timestamp="2026-09-29T10:00:00Z",
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("60000.00"),
+            notional=Decimal("6.00"),
+            fee=Decimal("0.006"),
+            exchange_reported_fee=Decimal("0.00"),
+            estimated_fee=Decimal("0.006"),
+            fee_source="ESTIMATED",
+        )
+        t_sell = TestnetTradeRecord(
+            client_order_id="sell_02",
+            exchange_order_id="ex_s2",
+            timestamp="2026-09-29T10:01:00Z",
+            symbol="BTC/USDT",
+            side="SELL",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("65000.00"),
+            notional=Decimal("6.50"),
+            fee=Decimal("0.0065"),
+            exchange_reported_fee=Decimal("0.00"),
+            estimated_fee=Decimal("0.0065"),
+            fee_source="ESTIMATED",
+        )
+
+        fin_m, pos = recalculate_financial_metrics(
+            trades=[t_buy, t_sell],
+            current_price=Decimal("65000.00"),
+            strategy_capital=Decimal("100.00"),
+        )
+
+        self.assertEqual(fin_m.exchange_reported_fees, Decimal("0.00"))
+        self.assertEqual(fin_m.estimated_fees, Decimal("0.01"))  # quantizado a 2 casas = 0.01
+        self.assertEqual(fin_m.fees, Decimal("0.01"))
+        # Gross = 0.50, effective fees = 0.0125 -> Net PnL = 0.4875 -> 0.49
+        self.assertEqual(fin_m.net_pnl, Decimal("0.49"))
+
+    # 5. ESTIMATIVA DE SLIPPAGE (BUY & SELL SEM DUPLA CONTAGEM)
+    def test_slippage_calculation_buy_and_sell(self) -> None:
+        """Slippage é calculado por fill: BUY = (fill - ref), SELL = (ref - fill), sem dupla dedução no Net PnL."""
+        # BUY com slippage adverso (+60 USDT, +10 bps)
+        t_buy = TestnetTradeRecord(
+            client_order_id="buy_slip",
+            exchange_order_id="ex_bs",
+            timestamp="2026-09-29T10:00:00Z",
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("60060.00"),
+            reference_price=Decimal("60000.00"),
+            estimated_slippage_usdt=Decimal("0.0060"),
+            estimated_slippage_bps=Decimal("10.00"),
+            notional=Decimal("6.006"),
+            fee=Decimal("0.00"),
+        )
+        # SELL com slippage adverso (-65 USDT, +10 bps)
+        t_sell = TestnetTradeRecord(
+            client_order_id="sell_slip",
+            exchange_order_id="ex_ss",
+            timestamp="2026-09-29T10:01:00Z",
+            symbol="BTC/USDT",
+            side="SELL",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("64935.00"),
+            reference_price=Decimal("65000.00"),
+            estimated_slippage_usdt=Decimal("0.0065"),
+            estimated_slippage_bps=Decimal("10.00"),
+            notional=Decimal("6.4935"),
+            fee=Decimal("0.00"),
+        )
+
+        fin_m, _ = recalculate_financial_metrics(
+            trades=[t_buy, t_sell],
+            current_price=Decimal("64935.00"),
+            strategy_capital=Decimal("100.00"),
+        )
+
+        # Slippage total = 0.0060 + 0.0065 = 0.0125 -> quantizado para 0.01 USDT
+        self.assertEqual(fin_m.estimated_slippage, Decimal("0.01"))
+        self.assertEqual(fin_m.estimated_slippage_bps, Decimal("10.00"))
+
+        # Inviolabilidade contra dupla contagem:
+        # Cash out = 6.0060, Cash in = 6.4935
+        # Net PnL = 6.4935 - 6.0060 = +0.4875 -> 0.49 USDT (fill real já determinou o fluxo!)
+        self.assertEqual(fin_m.net_pnl, Decimal("0.49"))
+
+    # 6. MÉTRICAS DERIVADAS & TRADES PARCIAIS
+    def test_partial_fill_and_derived_metrics(self) -> None:
+        """Preenchimento parcial rateia custo e calcula win rate, profit factor e expectancy corretamente."""
+        # BUY 0.0002 BTC @ 60000 USDT (custo = 12.00 USDT)
+        t_buy = TestnetTradeRecord(
+            client_order_id="buy_p1",
+            exchange_order_id="ex_bp1",
+            timestamp="2026-09-29T10:00:00Z",
+            symbol="BTC/USDT",
+            side="BUY",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00020000"),
+            executed_quantity=Decimal("0.00020000"),
+            average_fill_price=Decimal("60000.00"),
+            notional=Decimal("12.00"),
+            fee=Decimal("0.00"),
+        )
+        # SELL parcial de 0.0001 BTC @ 70000 USDT (receita = 7.00 USDT, custo = 6.00 USDT, lucro = 1.00 USDT)
+        t_sell_part = TestnetTradeRecord(
+            client_order_id="sell_p1",
+            exchange_order_id="ex_sp1",
+            timestamp="2026-09-29T10:01:00Z",
+            symbol="BTC/USDT",
+            side="SELL",
+            order_type="MARKET",
+            requested_quantity=Decimal("0.00010000"),
+            executed_quantity=Decimal("0.00010000"),
+            average_fill_price=Decimal("70000.00"),
+            notional=Decimal("7.00"),
+            fee=Decimal("0.00"),
+        )
+
+        fin_m, pos = recalculate_financial_metrics(
+            trades=[t_buy, t_sell_part],
+            current_price=Decimal("70000.00"),
+            strategy_capital=Decimal("100.00"),
+        )
+
+        self.assertEqual(fin_m.closed_trades, 1)
+        self.assertEqual(fin_m.realized_pnl, Decimal("1.00"))
+        # Posição restante: 0.0001 BTC
+        self.assertEqual(pos.side, "LONG")
+        self.assertEqual(pos.quantity, Decimal("0.00010000"))
+        # Unrealized PnL da posição restante @ 70000 vs custo 6.00 = +1.00 USDT
+        self.assertEqual(fin_m.unrealized_pnl, Decimal("1.00"))
+        self.assertEqual(fin_m.net_pnl, Decimal("2.00"))
+        self.assertEqual(fin_m.win_rate_pct, 100.0)
+        self.assertEqual(fin_m.profit_factor, 999.99)
+        self.assertEqual(fin_m.average_win, Decimal("1.00"))
+        self.assertIsNone(fin_m.average_loss)
 
 
 if __name__ == "__main__":
