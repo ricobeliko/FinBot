@@ -231,3 +231,37 @@ python -c "from finbot.private_exchange import BinancePrivateExchange; ex = Bina
 - **NUNCA salvar chaves ou segredos em arquivos** (`.env`, `.json`, `.yaml`, `.txt`, `.sqlite3`, `.csv` ou logs).
 - **NUNCA registrar valores reais de saldo ou quantidades financeiras** em relatórios versionados ou issues.
 - **Trading real bloqueado**: `create_order` e `cancel_order` permanecem desabilitados com bloqueio arquitetural inviolável (`LiveTradingBlockedError`).
+
+---
+
+## 14. Procedimento Operacional: Pre-Flight de Prontidão (FASE 8.4C1)
+
+Procedimento seguro de validação operacional read-only preliminar, executado no ambiente de produção (PC Forte) antes de qualquer autorização de micro-ordem real.
+
+### 14.1 Executar Comando Pre-Flight
+Com o ambiente ativado:
+```powershell
+python -m finbot.preflight
+# ou diretamente via executável da virtualenv:
+.\.venv\Scripts\python.exe -m finbot.preflight
+```
+
+### 14.2 O que o Pre-Flight valida (100% Read-Only)
+1. **Credenciais**: Presença e integridade das chaves no Windows Credential Manager (`target=FinBot/Binance/Production`). Zero segredos impressos.
+2. **Autenticação Privada**: Conexão com Binance Spot via `get_account_status()` (`BINANCE_PRIVATE_AUTH = PASS`).
+3. **Leitura de Saldos**: Consulta privada via `get_balances()` (`PRIVATE_BALANCE_READ = PASS`). Nenhum saldo numérico é exibido ou persistido.
+4. **Filtros de Mercado**: Consulta pública dos filtros atuais de `BTC/USDT` no CCXT (`minQty`, `stepSize`, `tickSize`, `minNotional`).
+5. **MarketFilterGuard**: Validação dos filtros extraídos contra as regras defensivas de mercado.
+6. **Micro-Ordem Candidata**: Cálculo estrito de quantidade e preço com margem defensiva acima de `minNotional` e estritamente abaixo do teto `live_micro_order_max_notional` (15.0 USDT).
+7. **Suficiência de Fundos**: Verificação passiva se o saldo livre de USDT cobre o notional da candidata (`FUNDS_AVAILABLE_FOR_CANDIDATE = YES`).
+8. **Simulação Dry-Run**: Envio da intenção candidata pelo pipeline defensivo completo (`LiveSafetyGate` + `DryRunExecutionEngine`), confirmando status `SIMULATED_ACCEPTED`.
+9. **Barreira Final**: Validação local e sem rede de que `real_order_submission_enabled == False`.
+10. **Barreiras de Ordens**: Confirmação estrutural de que `create_order` e `cancel_order` levantam `LiveTradingBlockedError`.
+
+### 14.3 Critério Mandatório de Prontidão
+A execução futura da **FASE 8.4C2** (micro-ordem assistida com o operador) só é autorizada se o relatório final emitir:
+```text
+READY_FOR_8_4C2 = YES
+```
+Se qualquer checagem falhar ou emitir `NO`, o sistema permanece categoricamente bloqueado.
+

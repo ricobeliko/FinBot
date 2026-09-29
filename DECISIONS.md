@@ -747,6 +747,31 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Proibição absoluta de armazenamento de API Keys, API Secrets ou senhas no banco, logs ou representações de string (`repr`).
 - **Motivo**: Estabelecer a infraestrutura do executor live mais defensiva, auditável e determinística possível, blindando o capital contra falhas de rede, ordens fantasmas e duplicações acidentais antes da realização da primeira micro-ordem assistida.
 
+---
+
+### D035 — Comando Operacional de Pre-Flight e Validação Hermética de Prontidão (Fase 8.4C1A)
+- **Status**: Aceito
+- **Data**: FASE 8.4C1A
+- **Contexto**: A realização de uma futura micro-operação real assistida na Binance Spot (Fase 8.4C) exige um procedimento operacional unificado, seguro e reproduzível para verificar credenciais, conectividade privada, metadados públicos de mercado, saldo disponível e integridade de barreiras antes de qualquer interação humana no livro de ofertas. Essa verificação deve ocorrer via comando direto (`python -m finbot.preflight`) e ser estruturalmente incapaz de emitir ou cancelar ordens reais.
+- **Decisão**:
+  - **Divisão Metodológica da Fase 8.4C1**:
+    - **FASE 8.4C1A**: Implementação e testes herméticos do entrypoint `finbot.preflight` no Notebook (desenvolvimento), com zero chamadas privadas reais de rede e 100% de cobertura com mocks e stubs.
+    - **FASE 8.4C1B**: Execução operacional do comando em modo estritamente read-only no PC Forte (produção), onde residem as credenciais oficiais no Windows Credential Manager.
+  - **Inviolabilidade de Execução Real no Pre-Flight**:
+    - O comando `run_preflight` é concebido para ser estruturalmente desprovido de qualquer rota para chamadas HTTP de negociação (`create_order`, `cancel_order`).
+    - Nenhuma chamada a `BinanceOrderAdapter.submit_order` ou `cancel_order` real é permitida.
+    - A simulação de conformidade de pipeline ocorre obrigatoriamente através do `DryRunExecutionEngine` com armazenamento em memória (`:memory:`), emitindo `SIMULATED_ACCEPTED`.
+  - **Higienização Absoluta de Saída e Proteção de Segredos**:
+    - Relatório estritamente sanitizado: proibição total de exibição de API Key, API Secret, comprimentos de chave ou repr de objetos de credencial.
+    - Consulta de saldos restrita a atestar `PRIVATE_BALANCE_READ = PASS` e checar passivamente suficiência (`FUNDS_AVAILABLE_FOR_CANDIDATE = YES/NO`). Proibição de exibição de saldos em USDT, BTC ou patrimônio consolidado no terminal ou em logs.
+  - **Cálculo Dinâmico de Micro-Ordem Candidata (`calculate_micro_order_candidate`)**:
+    - Função pura que calcula dinamicamente quantidade, preço e notional para uma compra a partir dos filtros vigentes de `BTC/USDT` no CCXT.
+    - Regras estritas: conformidade com `minNotional`, `minQty`, `stepSize`, `price_step`, inclusão de margem defensiva (~15% acima do mínimo para tolerar volatilidade) e teto inviolável dado por `live_micro_order_max_notional` (default 15.0 USDT). Se os filtros exigirem um mínimo superior ao teto, emite `SAFE_MICRO_ORDER_POSSIBLE = NO`.
+  - **Critério Rígido de Prontidão (`READY_FOR_8_4C2 = YES`)**:
+    - Prontidão para a Fase 8.4C2 condicionada ao sucesso simultâneo de 11 verificações: credenciais presentes, autenticação privada válida, saldos lidos com sucesso, metadados obtidos, filtros válidos, candidata calculável, fundos suficientes, simulação dry-run aceita, barreira final ativa (`real_order_submission_enabled == False`), barreira de create_order ativa e barreira de cancel_order ativa.
+- **Motivo**: Prover um gate de segurança operacional infalível e reproduzível que garanta conformidade técnica total antes de qualquer operação financeira real assistida.
+
+
 
 
 

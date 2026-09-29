@@ -407,13 +407,39 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Adição de 22 testes unitários e de integração em `tests/test_live_executor.py` (totalizando 336 testes no projeto)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-#### FASE 8.4C — Assisted Binance Micro-Order Validation (Pendente)
+#### FASE 8.4C — Assisted Binance Micro-Order Validation
+
+##### FASE 8.4C1A — Implementação e Testes do Comando Operacional de Pre-Flight (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Criação do módulo `src/finbot/preflight.py` com o comando operacional `python -m finbot.preflight`
+- [x] Estrutura estritamente read-only e fail-closed: impossibilidade estrutural de submeter ou cancelar ordens reais
+- [x] Validação de credenciais via `WindowsCredentialProvider` sem expor API Key, Secret ou comprimentos de chave
+- [x] Validação de autenticação privada (`BINANCE_PRIVATE_AUTH = PASS`) e leitura de saldos (`PRIVATE_BALANCE_READ = PASS`) sem exibir valores patrimoniais no terminal ou logs
+- [x] Extração e validação pública de metadados e filtros de mercado de `BTC/USDT` via CCXT (`symbol`, `min_amount`, `step_size`, `price_tick`, `min_notional`)
+- [x] Validação dos filtros de mercado através do `MarketFilterGuard`
+- [x] Cálculo dinâmico de micro-ordem candidata segura (`calculate_micro_order_candidate`) respeitando `minNotional` e `live_micro_order_max_notional` (15.0 USDT) com margem de tolerância (~15%)
+- [x] Verificação passiva de fundos disponíveis para a candidata (`FUNDS_AVAILABLE_FOR_CANDIDATE = YES/NO`) sem exibir saldo
+- [x] Execução simulada da candidata no pipeline defensivo completo em modo `DRY_RUN` (`SIMULATED_ACCEPTED`)
+- [x] Verificação local e hermética da barreira final (`real_order_submission_enabled == False`)
+- [x] Verificação estrutural das barreiras de `create_order` e `cancel_order` (`LiveTradingBlockedError`)
+- [x] Teste sentinela `test_preflight_cannot_submit_or_cancel_real_orders` aprovado (zero ordens enviadas, zero chamadas de ordem para a rede)
+- [x] Adição de 14 testes unitários e de segurança em `tests/test_preflight.py` (totalizando 350 testes no projeto)
+- [x] Procedimento operacional documentado na Seção 14 de `RUNBOOK.md`
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+##### FASE 8.4C1B — Execução Read-Only e Verificação de Barreiras no PC Forte (Pendente)
+- Execução do comando `python -m finbot.preflight` no ambiente de produção (PC Forte) com credenciais oficiais
+- Validação ao vivo da autenticação e consulta de saldos (read-only)
+- Confirmação dos filtros reais atuais de mercado de `BTC/USDT`
+- Cálculo e exibição da micro-ordem candidata em tempo real
+- Obtenção do resultado mandatório `READY_FOR_8_4C2 = YES`
+
+##### FASE 8.4C2 — Assisted Binance Micro-Order Validation (Pendente)
 - Esta fase executará a primeira micro-operação real controlada e assistida na Binance Spot com o operador:
-  - Consulta aos filtros atuais do par BTC/USDT na Binance Spot no PC Forte para determinação exata do valor de teste dentro dos limites de lote e notional
   - Liberação assistida e supervisionada das travas de submissão no PC Forte exclusivamente para uma única micro-ordem
   - Validação do fluxo completo: Submissão -> ACK -> Fill -> Reconciliação de saldo real
   - Validação assistida do fluxo de cancelamento de micro-ordem limite longe do book
-  - Preservação do Paper Soak Test no PC Forte
+  - Re-armamento imediato de todas as travas e preservação contínua do Paper Soak Test no PC Forte
 
 ---
 

@@ -1,7 +1,21 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.4B — Guarded Live Order Executor Foundation concluída no Notebook.
+FASE 8.4C1A — Implementação e Testes do Comando Operacional de Pre-Flight concluída no Notebook.
+
+### Pre-Flight Operational Command (FASE 8.4C1A)
+- Módulo `src/finbot/preflight.py` implementado com o comando operacional `python -m finbot.preflight` para validação pré-voo hermética, segura e unificada antes de qualquer futura micro-ordem real:
+  - *Inviolabilidade de Execução Real*: O comando é estruturalmente desprovido de qualquer capacidade de enviar ou cancelar ordens reais (`REAL_ORDERS_SENT = 0`, `ORDER_NETWORK_CALLS = 0`).
+  - *Checagem Segura de Credenciais*: Utiliza `WindowsCredentialProvider` para atestar presença de chaves (`CREDENTIAL_STORE = WINDOWS_CREDENTIAL_MANAGER`, `CREDENTIALS = PRESENT/MISSING`) com proibição absoluta de exibição de API Key, Secret, comprimentos de chave ou representação de string.
+  - *Autenticação Privada e Consulta de Saldos (Read-Only)*: Executa `get_account_status()` (`BINANCE_PRIVATE_AUTH = PASS/FAIL`) e `get_balances()` (`PRIVATE_BALANCE_READ = PASS/FAIL`) sem exibir ou persistir qualquer valor patrimonial em tela ou logs.
+  - *Metadados Públicos e Filtros CCXT*: Carrega dados públicos de `BTC/USDT` (`symbol`, `min_amount`, `step_size`, `price_tick`, `min_notional`) e os valida através do `MarketFilterGuard` (`MARKET_FILTER_GUARD = PASS/FAIL`).
+  - *Cálculo Dinâmico de Micro-Ordem Candidata*: Função `calculate_micro_order_candidate` respeita `minNotional`, `minQty`, `stepSize`, `price_step`, inclui margem defensiva (~15% acima do mínimo) e respeita estritamente o teto `live_micro_order_max_notional` (15.0 USDT). Se impossível, emite `SAFE_MICRO_ORDER_POSSIBLE = NO`.
+  - *Verificação Passiva de Suficiência de Fundos*: Verifica se o saldo livre em USDT cobre o notional da candidata (`FUNDS_AVAILABLE_FOR_CANDIDATE = YES/NO`) sem divulgar valores numéricos.
+  - *Pipeline Simulado em Modo DRY_RUN*: Submete a intenção candidata ao pipeline real (`LiveSafetyGate` + `DryRunExecutionEngine`), confirmando conformidade técnica com status `SIMULATED_ACCEPTED`.
+  - *Verificação de Barreiras Locais*: Valida localmente que `real_order_submission_enabled == False` (`FINAL_LIVE_BARRIER = PASS`) e que `create_order` e `cancel_order` levantam `LiveTradingBlockedError` (`CREATE_ORDER_BARRIER = PASS`, `CANCEL_ORDER_BARRIER = PASS`).
+  - *Critério Rígido de Prontidão*: Emite `READY_FOR_8_4C2 = YES` exclusivamente se todas as 11 checagens forem aprovadas.
+- 350 testes automatizados (338 passando e 12 skipped no `.venv` padrão; zero chamadas de rede). 14 novos testes dedicados em `tests/test_preflight.py` incluindo o sentinela `test_preflight_cannot_submit_or_cancel_real_orders`.
+- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Guarded Live Order Executor Foundation (FASE 8.4B)
 - Módulo `src/finbot/live_executor.py` implementado com a infraestrutura defensiva do executor LIVE para futuras operações na Binance Spot:
@@ -242,11 +256,13 @@ not implemented
 - D032: Live Execution Safety Foundation (Fase 8.3).
 - D033: Dry-Run Live Execution Engine (Fase 8.4A).
 - D034: Guarded Live Order Execution Foundation (Fase 8.4B).
+- D035: Comando Operacional de Pre-Flight e Validação Hermética de Prontidão (Fase 8.4C1A).
 
 ## Último checkpoint
-FASE 8.4B — Guarded Live Order Executor Foundation: Módulo `src/finbot/live_executor.py` implementado com arquitetura de execução live defensiva e validado com 22 testes unitários e de integração sem chamadas de rede (totalizando 336 testes no projeto). GuardedLiveExecutionEngine aceita exclusivamente ApprovedOrderIntent com fail-closed para qualquer intenção não aprovada. Triple Live Arming requer três condições simultâneas: trading_mode == 'live', live_trading_acknowledged == True e live_execution_enabled == True (default False). Micro-Order Cap operacional com live_micro_order_max_notional (default 15.0 USDT) com rejeição imediata se excedido (MicroOrderCapExceededError) e proibição de redução automática de lote. Protocolo ExchangeOrderAdapter com injeção explícita de dependência (FakeExchangeOrderAdapter para testes e BinanceOrderAdapter para produção). Trava final da fase: BinanceOrderAdapter bloqueado por real_order_submission_enabled == False levantando RealOrderSubmissionBlockedError antes de qualquer chamada HTTP/CCXT. BinancePrivateExchange.create_order() e cancel_order() continuam bloqueados levantando LiveTradingBlockedError. Teste sentinela test_phase_8_4b_cannot_reach_real_binance_order_endpoint aprovado. Idempotência com persistência mandatória de PENDING_SUBMISSION com correlation_id e client_order_id antes da submissão. Máquina de estados completa (PREPARED, PENDING_SUBMISSION, SUBMITTED, ACKNOWLEDGED, PARTIALLY_FILLED, FILLED, CANCEL_PENDING, CANCELED, REJECTED, UNKNOWN). Regra Mandatória de Falha Ambígua: UNKNOWN != FAILED e TIMEOUT != SAFE TO RETRY (timeouts de rede resultam em UNKNOWN sem retry automático, exigindo reconcile_order). Cancelamento seguro cancel_order bloqueando ordens FILLED ou UNKNOWN. Auditoria local append-only via LiveOrderStorage nas tabelas live_orders e live_order_lifecycle sem exposição de credenciais. Paper Soak de 72h no PC Forte intocado.
+FASE 8.4C1A — Implementação e Testes do Comando Operacional de Pre-Flight: Módulo `src/finbot/preflight.py` implementado com o comando CLI `python -m finbot.preflight` para validação read-only de prontidão antes de micro-ordens reais e coberto por 14 novos testes unitários herméticos (totalizando 350 testes no projeto). O comando verifica estruturalmente a presença de credenciais no Windows Credential Manager (sem expor secrets), realiza checagem de status e saldo na Binance Spot (sem exibir quantias patrimoniais), obtém filtros e metadados de mercado do par BTC/USDT via CCXT público, valida as regras pelo MarketFilterGuard, calcula a micro-ordem candidata dentro do teto operacional (live_micro_order_max_notional = 15.0 USDT) com margem de segurança (~15%), atesta passivamente suficiência de fundos (FUNDS_AVAILABLE_FOR_CANDIDATE), executa simulação no pipeline defensivo completo em modo DRY_RUN (SIMULATED_ACCEPTED), e valida localmente a barreira final (real_order_submission_enabled == False) e o bloqueio de ordens (LiveTradingBlockedError). Critério formal READY_FOR_8_4C2 = YES condicionado à aprovação cumulativa de todas as 11 verificações. Teste sentinela test_preflight_cannot_submit_or_cancel_real_orders aprovado. Zero chamadas privadas reais à Binance no Notebook. Procedimento operacional documentado na Seção 14 do RUNBOOK.md. Paper Soak de 72h no PC Forte intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.4C — Assisted Binance Micro-Order Validation (execução supervisionada e assistida da primeira micro-ordem real no par BTC/USDT na Binance Spot no PC Forte, com consulta aos filtros de mercado atuais, liberação assistida das travas exclusivamente para uma única micro-ordem, validação de ciclo de vida completo e preservação contínua do Paper Soak Test).
+FASE 8.4C1B — Execução Read-Only e Verificação de Barreiras no PC Forte: Realizar a execução oficial do comando `python -m finbot.preflight` no PC Forte com credenciais operacionais, validar autenticação ao vivo, saldos, filtros reais de mercado de BTC/USDT e obter o relatório com status `READY_FOR_8_4C2 = YES` antes de prosseguir para a emissão da micro-ordem assistida (Fase 8.4C2).
+
 
 
