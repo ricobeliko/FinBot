@@ -450,8 +450,8 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Zero ordens reais de produção enviadas (`PRODUCTION_ORDERS_SENT = 0`), zero ordens de testnet enviadas durante testes (`TESTNET_ORDERS_SENT = 0`)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-##### FASE 8.4C2B — Spot Testnet Operational Validation (Em Validação Operacional)
-- **Status**: EM VALIDAÇÃO OPERACIONAL (Pendente de execução e reconciliação da ordem real na TESTNET)
+##### FASE 8.4C2B — Spot Testnet Operational Validation (Concluída)
+- **Status**: CONCLUÍDA
 - [x] Implementação do comando operacional controlado `python -m finbot.testnet_order_validation`
 - [x] Modo Dry Preview padrão (100% read-only) exibindo metadados, filtros, candidato (~6 USDT), Risk Engine e isolamento de produção com aborto fail-closed pré-escrita (`TESTNET_WRITE_EXECUTED = NO`)
 - [x] Armamento estrito condicionado à flag explícita `--confirm-testnet-order` e rejeição de flags genéricas (`--yes`, `--force`, `--live`)
@@ -463,13 +463,40 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Reconciliação determinística por polling limitado via `reconcile_order(client_order_id)`
 - [x] Auditoria local e higienização estrita de saída (zero chaves, segredos ou assinaturas expostos)
 - [x] Adição de 17 testes focados em `tests/test_testnet_order_validation.py` (totalizando 389 testes no projeto)
-- [ ] Execução operacional do comando de envio na Spot Testnet real com o operador
-- [ ] Confirmação de preenchimento (FILLED) e reconciliação de saldo fictício na Spot Testnet
+- [x] Primeira ordem externa Spot Testnet executada com sucesso e confirmada pelo operador:
+  - `ENVIRONMENT = spot_testnet`
+  - `SYMBOL = BTC/USDT`
+  - `SIDE = BUY`
+  - `TYPE = MARKET`
+  - `REQUESTED_NOTIONAL = ~6.63 USDT fictícios`
+  - `EXECUTED_QUANTITY = 0.00008000 BTC`
+  - `ORDER_STATUS = FILLED`
+  - `FINAL_STATE = FILLED`
+  - `RECONCILIATION_STATUS = CONFIRMED`
+  - `TESTNET_ORDERS_SENT = 1`
+  - `PRODUCTION_ORDERS_SENT = 0`
+  - `PRODUCTION_WRITE_ENABLED = NO`
+
+##### FASE 8.4C2C — Binance Spot Testnet Execution Lifecycle Validation (Em Implementação / Validação Operacional)
+- **Status**: EM IMPLEMENTAÇÃO / EM VALIDAÇÃO OPERACIONAL
+- [x] Extensão unificada do comando operacional `src/finbot/testnet_order_validation.py` suportando `--action` (`sell_market`, `limit_cancel`, `buy_market`)
+- [x] Modo Dry Preview padrão (100% read-only) exibindo todos os metadados, filtros, notional e preço de referência com garantia `TESTNET_WRITE_EXECUTED = NO`
+- [x] Ciclo 1: Implementação do fluxo `SELL MARKET` (dimensionamento dinâmico a partir do saldo livre de BTC, teto estrito na quantidade adquirida de `0.00008000 BTC`, filtros `stepSize`, `minQty` e `minNotional`)
+- [x] Ciclos 2 e 3: Implementação do fluxo `LIMIT` + `CANCEL` (preço defensivo 15% abaixo do ticker, respeitando `tickSize`, notional ~6 USDT fictícios, submissão, verificação de ordem aberta no book, cancelamento assistido e reconciliação final)
+- [x] Proteção sentinela contra preenchimento prévio: detecção de `FILLED` antes do cancelamento com preservação do estado real sem cancelamento cego
+- [x] Idempotência rigorosa com `correlation_id` e `clientOrderId` únicos e determinísticos por ciclo, vedado o reuso de identificadores de ordens anteriores
+- [x] Tratamento de falha ambígua (`TIMEOUT -> UNKNOWN`, sem retry automático) e reconciliação obrigatória
+- [x] Sentries defensivos pré-escrita (ambiente `SPOT_TESTNET`, adapter de Testnet, endpoint `testnet.binance.vision`, proibição de `api.binance.com`, target `FinBot/Binance/SpotTestnet`)
+- [x] Adição de 19 testes focados em `tests/test_testnet_order_validation.py` (totalizando 391 testes no projeto)
+- [ ] Execução assistida do Preview Read-Only de SELL MARKET na Spot Testnet
+- [ ] Execução operacional armada de SELL MARKET na Spot Testnet e reconciliação de saldo
+- [ ] Execução assistida do Preview Read-Only de LIMIT + CANCEL na Spot Testnet
+- [ ] Execução operacional armada de LIMIT + CANCEL na Spot Testnet e reconciliação final
 
 > **DIRETRIZ CONSTITUCIONAL DE CAPITAL REAL (`LIVE_CAPITAL_GATE`)**:
 > **DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**
 > A prontidão técnica do pipeline de execução não autoriza operações com capital real.
-> Antes de qualquer Production WRITE será obrigatória a aprovação em um futuro **`LIVE_CAPITAL_GATE`**, baseado em estabilidade operacional comprovada e evidência estatística de desempenho robusto.
+> Antes de qualquer Production WRITE será obrigatória a aprovação em um futuro **`LIVE_CAPITAL_GATE`**, baseado em critérios objetivos de estabilidade, confiabilidade de execução, drawdown, quantidade mínima de operações, resultado líquido após custos, validação fora da amostra (OOS), Paper Soak ininterrupto e Testnet Soak.
 
 ##### FASE 8.4C3 — Assisted Production Micro-Order Validation (Pendente de LIVE_CAPITAL_GATE)
 - Primeira micro-operação real controlada e assistida na Binance Spot com o operador (condicionada à aprovação formal do `LIVE_CAPITAL_GATE`):

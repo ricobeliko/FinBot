@@ -850,8 +850,51 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - O `LIVE_CAPITAL_GATE` será condicionado à estabilidade operacional comprovada em execução autônoma contínua, consistência em ambiente simulado e evidência estatística de desempenho robusto sem anomalias.
 - **Motivo**: Garantir segurança máxima e governança institucional blindada na execução de ordens na Testnet e vedar terminantemente o uso precipitado de fundos reais.
 
+---
 
-
-
-
-
+### D038 — Binance Spot Testnet Execution Lifecycle Validation & Live Capital Gate Framework (Fase 8.4C2C)
+- **Status**: Aceito
+- **Data**: FASE 8.4C2C
+- **Contexto**: A conclusão bem-sucedida da Fase 8.4C2B consolidou a primeira emissão e reconciliação de uma ordem real de compra na Binance Spot Testnet (`0.00008000 BTC` a ~6.63 USDT fictícios com status `FILLED` e `CONFIRMED`). Para assegurar a robustez completa do executor antes de qualquer consideração de capital real, faz-se necessário validar os demais ciclos essenciais de execução na Spot Testnet: venda a mercado (`SELL MARKET`), ordem limite longe do book (`LIMIT`) e cancelamento assistido (`CANCEL`), bem como a reconciliação precisa de todos os estados intermediários e finais.
+- **Decisão**:
+  - **Extensão Unificada da Ferramenta Operacional (`src/finbot/testnet_order_validation.py`)**:
+    - Suporte nativo ao seletor `--action`:
+      - `sell_market` (default conservador): ciclo de venda a mercado do saldo fictício adquirido.
+      - `limit_cancel`: ciclo completo de colocação de ordem LIMIT abaixo do mercado seguido de cancelamento controlado e reconciliação.
+      - `buy_market`: ciclo de compra a mercado (validado na 8.4C2B e mantido para testes de regressão).
+  - **Modo Preview Obrigatório (100% Read-Only por Padrão)**:
+    - Qualquer invocação sem a flag explícita `--confirm-testnet-order` opera em modo estritamente read-only (Dry Preview), exibindo `ENVIRONMENT`, `SYMBOL`, `SIDE`, `TYPE`, `QUANTITY`, `ESTIMATED_NOTIONAL`, `PRICE` (quando aplicável), `RISK_ENGINE`, `MARKET_FILTER_GUARD`, `PRODUCTION_ISOLATION` e `TESTNET_WRITE_EXECUTED = NO`.
+    - Nenhuma escrita externa é realizada sem autorização prévia e explícita do operador.
+  - **Ciclo 1: SELL MARKET Seguro com Consulta Dinâmica**:
+    - O dimensionamento não presume valores fixos: consulta em tempo real o saldo disponível de BTC (`available_btc`), os filtros oficiais vigentes (`minQty`, `stepSize`, `minNotional`) e o ticker atual via `fetch_ticker`.
+    - A quantidade é limitada ao teto estrito adquirido na fase anterior (`max_sell_qty = 0.00008000 BTC`), sanitizada pelo `stepSize` e validada contra `minQty`.
+    - O valor nocional estimado é checado contra `minNotional` e contra o micro-order cap (15.0 USDT). Se o saldo ou notional forem insuficientes, a operação é bloqueada com segurança fail-closed (`READY_TO_EXECUTE_TESTNET_ORDER : NO`).
+  - **Ciclo 2 & 3: LIMIT Order + CANCEL Controlado**:
+    - Preço limite calculado deterministicamente com desconto defensivo (~15% abaixo do ticker atual do mercado), alinhado ao passo exato do livro (`price_step` / `tickSize`) para garantir que a ordem permaneça aberta no order book tempo suficiente para testar o cancelamento.
+    - Notional calculado dinamicamente em ~6.00 USDT fictícios (respeitando `minNotional` de 5.0 USDT e `micro_order_cap` de 15.0 USDT).
+    - Máquina de estados executada: `PREPARED` -> `PENDING_SUBMISSION` -> `SUBMITTED` -> reconciliação de estado aberto (`ACKNOWLEDGED`/`SUBMITTED`) -> verificação sentinela contra preenchimento prévio -> submissão de `CANCEL_PENDING` -> `CANCELED` -> reconciliação determinística final.
+    - Se a ordem preencher na exchange antes do cancelamento (`FILLED`), o sistema detecta a transição e NÃO tenta cancelar cegamente; reconcilia e registra o estado real como preenchida.
+  - **Idempotência Estrita e Prevenção de Colisões**:
+    - Cada ação possui `correlation_id` e `clientOrderId` únicos e determinísticos (`finbot_<hash>`), proibindo estritamente a reutilização do correlation_id da BUY anterior.
+    - Nenhuma submissão é reexecutada automaticamente em caso de timeout de rede (regra soberana: `TIMEOUT -> UNKNOWN`, auto-retry proibido).
+  - **Sentries Defensivos Pré-Escrita (Fail-Closed)**:
+    - Verificação obrigatória revalidada antes de qualquer submissão ou cancelamento:
+      1. `binance_environment == SPOT_TESTNET`
+      2. `testnet_execution_enabled == True`
+      3. `adapter == BinanceSpotTestnetOrderAdapter` (ou fake em testes)
+      4. `endpoint` CCXT contém `testnet.binance.vision` e JAMAIS `api.binance.com`
+      5. `target` de credenciais é estritamente `FinBot/Binance/SpotTestnet` (bloqueando categoricamente `FinBot/Binance/Production`)
+  - **Política Constitucional Institucional de Capital Real (`LIVE_CAPITAL_GATE`)**:
+    - **PRODUCTION WRITE PERMANECE FORA DO ROADMAP OPERACIONAL IMEDIATO.**
+    - Nenhum centavo de dinheiro real será arriscado apenas porque os testes de software ou de testnet passaram.
+    - Antes de qualquer escrita com fundos reais na Binance Production, será mandatório o cumprimento integral do framework **`LIVE_CAPITAL_GATE`**, abrangendo:
+      1. *Estabilidade Operacional*: Zero crashes, unhandled exceptions ou inconsistências de estado no ambiente do operador;
+      2. *Confiabilidade de Execução*: Taxa de reconciliação de 100%, com zero ordens órfãs ou estados ambíguos não resolvidos;
+      3. *Controle de Drawdown*: Drawdown estritamente dentro dos parâmetros estabelecidos pela governança de risco;
+      4. *Amostragem Mínima de Operações*: Volume estatisticamente representativo de trades executados em ambiente simulado;
+      5. *Resultado Líquido Positivo Após Custos*: Lucratividade comprovada descontando taxas de corretagem (taker/maker) e slippage;
+      6. *Validação Fora da Amostra (Out-of-Sample)*: Robustez comprovada em dados de mercado não vistos durante a calibração de parâmetros;
+      7. *Paper Trading Prolongado (Paper Soak)*: Conclusão e estabilidade demonstrada em soaking ininterrupto no PC Forte;
+      8. *Testnet Soak*: Validação de resiliência a desconexões e reconexões de rede em ambiente sandbox de exchange real.
+    - A fixação de valores numéricos para cada critério será objeto de uma fase específica posterior, vedada qualquer definição arbitrária antecipada.
+- **Motivo**: Concluir o ciclo técnico completo de validação de ordens na Binance sem risco patrimonial e blindar constitucionalmente o projeto contra a liberação prematura de capital real.

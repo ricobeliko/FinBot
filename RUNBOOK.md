@@ -322,46 +322,100 @@ Zero ordens são enviadas durante o Pre-Flight (`TESTNET_ORDERS_SENT = 0`, `PROD
 
 ---
 
-## 16. Procedimento Operacional: Validação de Ordem Spot Testnet (FASE 8.4C2B)
+## 16. Procedimento Operacional: Validação de Ciclo de Vida Spot Testnet (FASES 8.4C2B e 8.4C2C)
 
-Comando operacional para validação e execução assistida da primeira ordem na Binance Spot Testnet oficial (`https://testnet.binance.vision`) utilizando capital fictício.
+Ferramenta operacional assistida para validação dos ciclos essenciais de execução na Binance Spot Testnet oficial (`https://testnet.binance.vision`) utilizando capital fictício.
 
-### 16.1 Executar Dry Preview (100% Read-Only)
-Antes de qualquer submissão armada, execute o comando sem argumentos de confirmação para revisar os metadados, filtros e dimensionamento dinâmico da ordem:
+### 16.1 Estado Consolidado da Primeira Ordem (FASE 8.4C2B — CONCLUÍDA)
+A primeira emissão de compra na Spot Testnet foi executada com sucesso e confirmada pelo operador:
+- `ENVIRONMENT = spot_testnet`
+- `SYMBOL = BTC/USDT`
+- `SIDE = BUY`
+- `TYPE = MARKET`
+- `REQUESTED_NOTIONAL = ~6.63 USDT fictícios`
+- `EXECUTED_QUANTITY = 0.00008000 BTC`
+- `ORDER_STATUS = FILLED`
+- `FINAL_STATE = FILLED`
+- `RECONCILIATION_STATUS = CONFIRMED`
+- `TESTNET_ORDERS_SENT = 1`
+- `PRODUCTION_ORDERS_SENT = 0`
+- `PRODUCTION_WRITE_ENABLED = NO`
+
+---
+
+### 16.2 Validação do Ciclo de Vida (FASE 8.4C2C — EM VALIDAÇÃO OPERACIONAL)
+
+O entrypoint `finbot.testnet_order_validation` suporta o seletor `--action`:
+- `sell_market` (padrão conservador): venda assistida do saldo fictício adquirido (`0.00008000 BTC`).
+- `limit_cancel`: ciclo completo de colocação de ordem LIMIT abaixo do mercado seguido de cancelamento controlado e reconciliação.
+- `buy_market`: ciclo de compra a mercado (regressão da 8.4C2B).
+
+#### 16.2.1 Preview READ-ONLY de SELL MARKET (Padrão)
+**Comando seguro sem escrita (`TESTNET_WRITE_EXECUTED = NO`):**
 ```powershell
-python -m finbot.testnet_order_validation
+python -m finbot.testnet_order_validation --action sell_market
 # ou diretamente via executável:
-.\.venv\Scripts\python.exe -m finbot.testnet_order_validation
+.\.venv\Scripts\python.exe -m finbot.testnet_order_validation --action sell_market
+# ou simplesmente:
+python -m finbot.testnet_order_validation
 ```
 
-O comando opera de forma estritamente read-only:
-1. Conecta à Spot Testnet oficial via `BinanceSpotTestnetOrderAdapter` (modo desarmado).
-2. Carrega os filtros vigentes de `BTC/USDT` (`minQty`, `stepSize`, `minNotional`).
-3. Consulta o preço de mercado atual de `BTC/USDT` via `fetch_ticker`.
-4. Calcula dinamicamente a quantidade necessária para atingir ~6.00 USDT fictícios (respeitando minNotional e o micro-order cap de 15.0 USDT).
+O comando realiza de forma 100% read-only:
+1. Conecta à Spot Testnet e consulta o saldo real disponível de BTC (`get_balances`).
+2. Obtém os filtros de mercado vigentes de `BTC/USDT` (`minQty`, `stepSize`, `minNotional`).
+3. Consulta o ticker em tempo real via `fetch_ticker`.
+4. Dimensiona dinamicamente a quantidade de BTC a vender (limitada ao teto de `0.00008000 BTC`).
 5. Valida a intenção através de `RiskEngine`, `MarketFilterGuard` e `check_production_isolation`.
-6. Exibe a tela `TESTNET_ORDER_PREVIEW` com `TESTNET_WRITE_EXECUTED = NO` e aborta antes de qualquer escrita.
+6. Exibe a tela de preview com `TESTNET_WRITE_EXECUTED = NO` e aborta antes de qualquer escrita.
 
-### 16.2 Executar Ordem Armada na Spot Testnet
-Após conferência do preview pelo operador, a submissão real é realizada exigindo a flag inequívoca:
+#### 16.2.2 Execução Armada de SELL MARKET na Spot Testnet
+Após revisão e aprovação explícita do preview pelo operador:
 ```powershell
-python -m finbot.testnet_order_validation --confirm-testnet-order
+python -m finbot.testnet_order_validation --action sell_market --confirm-testnet-order
 ```
-*Atenção: Flags genéricas como `--yes`, `--force` ou `--live` são rejeitadas por segurança.*
+*Atenção: A flag `--confirm-testnet-order` é estrita e mandatória. Flags genéricas (`--yes`, `--force`, `--live`) são sumariamente rejeitadas.*
 
-O ciclo de execução armada:
-1. **Sentries Pré-Escrita**: Valida ambiente (`SPOT_TESTNET`), armamento (`testnet_execution_enabled == True`), adapter de Testnet, URLs CCXT (`testnet.binance.vision`, proibição de `api.binance.com`) e target de credenciais (`FinBot/Binance/SpotTestnet`).
-2. **Emissão de Sinal de Armamento**: Exibe `TARGET_ENVIRONMENT = BINANCE_SPOT_TESTNET`, `PRODUCTION_TARGET = NO`, `TESTNET_WRITE_ARMED = YES`.
-3. **Pipeline Completo**: `OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter`.
-4. **Idempotência**: Registro prévio de `PENDING_SUBMISSION` com `clientOrderId` determinístico (`finbot_<hash>`).
-5. **Submissão**: Envio da ordem à API da Testnet.
-6. **Falha Ambígua**: Em caso de timeout de rede, a ordem é marcada como `UNKNOWN` e o auto-retry é terminantemente proibido.
-7. **Reconciliação**: Polling determinístico limitado consultando o estado na exchange via `fetch_order` por `clientOrderId`.
-8. **Relatório**: Exibe o relatório de execução sem dados confidenciais com `TESTNET_ORDERS_SENT = 1`, `PRODUCTION_ORDERS_SENT = 0` e `PRODUCTION_WRITE_ENABLED = NO`.
+#### 16.2.3 Preview READ-ONLY de LIMIT + CANCEL
+**Comando seguro sem escrita:**
+```powershell
+python -m finbot.testnet_order_validation --action limit_cancel
+# ou diretamente via executável:
+.\.venv\Scripts\python.exe -m finbot.testnet_order_validation --action limit_cancel
+```
+Exibe o preço limite com 15% de desconto defensivo em relação ao ticker, alinhado ao `tickSize`, a quantidade calculada para ~6 USDT fictícios e atesta `TESTNET_WRITE_EXECUTED = NO`.
 
-### 16.3 Diretriz Institucional: Live Capital Gate
+#### 16.2.4 Execução Armada de LIMIT + CANCEL na Spot Testnet
+Após aprovação do preview pelo operador:
+```powershell
+python -m finbot.testnet_order_validation --action limit_cancel --confirm-testnet-order
+```
+O ciclo executa deterministicamente:
+1. Validação dos sentries defensivos pré-escrita.
+2. Emissão do sinal de armamento: `TARGET_ENVIRONMENT = BINANCE_SPOT_TESTNET`, `PRODUCTION_TARGET = NO`, `TESTNET_WRITE_ARMED = YES`.
+3. Submissão da ordem `LIMIT` de compra longe do book com `clientOrderId` determinístico único.
+4. Reconciliação do estado aberto (`SUBMITTED`/`ACKNOWLEDGED`).
+5. Verificação se a ordem já foi preenchida na exchange:
+   - Se já preencheu (`FILLED`), não tenta cancelar cegamente; reconcilia e registra o estado real.
+   - Se confirmada aberta, envia a solicitação de cancelamento controlado (`cancel_order`).
+6. Reconciliação final confirmando a transição para `CANCELED`.
+7. Emissão do relatório operacional sem dados sensíveis.
+
+---
+
+### 16.3 Diretriz Constitucional: Live Capital Gate
 **DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**
 A prontidão técnica do pipeline de execução não autoriza operações com capital real em Produção.
-Antes de qualquer migração para Produção com dinheiro real, será obrigatória a aprovação formal do **`LIVE_CAPITAL_GATE`**, baseado em evidência de estabilidade operacional e consistência estatística de desempenho.
+Antes de qualquer escrita em ambiente de Produção com fundos reais, será obrigatória a aprovação formal do **`LIVE_CAPITAL_GATE`**, baseado nos seguintes critérios objetivos:
+1. *Estabilidade Operacional*: Zero interrupções não planejadas, crashes ou exceções não tratadas no runtime;
+2. *Confiabilidade de Execução*: Taxa de reconciliação de 100%, sem estados ambíguos ou ordens órfãs;
+3. *Controle de Drawdown*: Drawdown estritamente dentro dos parâmetros de risco predefinidos;
+4. *Amostragem Mínima de Operações*: Amostra estatística significativa de ordens simuladas executadas;
+5. *Resultado Líquido Positivo Após Custos*: Rentabilidade líquida comprovada após taxas (maker/taker) e slippage;
+6. *Validação Fora da Amostra (Out-of-Sample)*: Robustez em dados não visualizados na calibração;
+7. *Paper Trading Prolongado (Paper Soak)*: Conclusão do soaking ininterrupto no PC Forte;
+8. *Testnet Soak*: Resiliência a desconexões de rede e reconexões em sandbox da exchange.
+
+*Os thresholds numéricos para cada critério serão definidos em fase posterior específica de governança.*
+
 
 

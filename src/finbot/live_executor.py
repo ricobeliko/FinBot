@@ -143,16 +143,23 @@ class FakeExchangeOrderAdapter:
         simulate_reject: bool = False,
         reject_reason: str = "Fake exchange rejection",
         environment: BinanceEnvironment | None = None,
+        balances: dict[str, dict[str, Decimal]] | None = None,
+        ticker_price: float = 60000.0,
     ) -> None:
         self.default_status = default_status
         self.simulate_timeout = simulate_timeout
         self.simulate_reject = simulate_reject
         self.reject_reason = reject_reason
         self.environment = environment
+        self.ticker_price = ticker_price
         self.submitted_payloads: list[dict[str, Any]] = []
         self.canceled_requests: list[dict[str, Any]] = []
         self.orders: dict[str, ExchangeOrderResult] = {}
         self._next_id = 1000
+        self._balances = balances or {
+            "USDT": {"free": Decimal("10000.00"), "used": Decimal("0.00"), "total": Decimal("10000.00")},
+            "BTC": {"free": Decimal("0.00010000"), "used": Decimal("0.00"), "total": Decimal("0.00010000")},
+        }
 
     def submit_order(self, payload: dict[str, Any]) -> ExchangeOrderResult:
         self.submitted_payloads.append(payload)
@@ -260,18 +267,23 @@ class FakeExchangeOrderAdapter:
         """Retorna ticker simulado para testes sem rede."""
         return {
             "symbol": symbol,
-            "last": 60000.0,
-            "ask": 60000.0,
-            "bid": 60000.0,
-            "close": 60000.0,
+            "last": self.ticker_price,
+            "ask": self.ticker_price,
+            "bid": self.ticker_price,
+            "close": self.ticker_price,
+        }
+
+    def set_balance(self, asset: str, free: Decimal, used: Decimal = Decimal("0.00")) -> None:
+        """Define saldo simulado de um ativo para testes."""
+        self._balances[asset] = {
+            "free": free,
+            "used": used,
+            "total": free + used,
         }
 
     def get_balances(self) -> dict[str, dict[str, Decimal]]:
         """Retorna saldos simulados para testes sem rede."""
-        return {
-            "USDT": {"free": Decimal("10000.00"), "used": Decimal("0.00"), "total": Decimal("10000.00")},
-            "BTC": {"free": Decimal("0.00"), "used": Decimal("0.00"), "total": Decimal("0.00")},
-        }
+        return dict(self._balances)
 
     def load_markets(self) -> dict[str, Any]:
         """Retorna metadados simulados de BTC/USDT para testes sem rede."""

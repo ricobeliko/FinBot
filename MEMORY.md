@@ -2,21 +2,37 @@
 
 ## Estado atual
 FASE 8.4C2A — Integração Binance Spot Testnet e Isolamento de Produção CONCLUÍDA.
-FASE 8.4C2B — Validação Operacional da Binance Spot Testnet EM VALIDAÇÃO OPERACIONAL.
+FASE 8.4C2B — Validação Operacional da Binance Spot Testnet CONCLUÍDA.
+FASE 8.4C2C — Validação do Ciclo de Vida de Execução na Binance Spot Testnet EM IMPLEMENTAÇÃO / EM VALIDAÇÃO OPERACIONAL.
+
+### Spot Testnet Execution Lifecycle Validation (FASE 8.4C2C)
+- Módulo `src/finbot/testnet_order_validation.py` estendido para cobrir os ciclos completos de execução na Binance Spot Testnet (`https://testnet.binance.vision`):
+  - *Seletor de Ações*: Suporte aos comandos `--action sell_market` (default conservador), `--action limit_cancel` e `--action buy_market`.
+  - *Modo Read-Only por Padrão (Dry Preview)*: Sem flag `--confirm-testnet-order`, gera visualização antecipada de todos os parâmetros com `TESTNET_WRITE_EXECUTED = NO` e aborta antes de qualquer mutação.
+  - *Ciclo 1 — SELL MARKET*: Dimensionamento dinâmico baseado no saldo livre de BTC (`get_balances`), limitado ao teto adquirido na Fase 8.4C2B (`0.00008000 BTC`), sanitizado pelo `stepSize` e validado contra `minQty` e `minNotional` em relação ao ticker ao vivo.
+  - *Ciclo 2 & 3 — LIMIT + CANCEL*: Ordem limite de compra posicionada 15% abaixo do mercado alinhada a `tickSize` com notional de ~6 USDT fictícios. Submissão, reconciliação de estado aberto no book (`SUBMITTED`/`ACKNOWLEDGED`), verificação sentinela contra fill prévio, submissão de cancelamento controlado e reconciliação determinística para `CANCELED`.
+  - *Proteção contra Fill Antecipado*: Se a ordem preencher na exchange antes do cancelamento (`FILLED`), não tenta cancelar cegamente; detecta a transição e reconcilia o estado real.
+  - *Idempotência e Prevenção de Colisão*: Geração determinística de `correlation_id` e `clientOrderId` únicos por operação, proibindo terminantemente a reutilização de identificadores da BUY anterior. Falhas de rede geram `UNKNOWN` sem retry automático.
+  - *Sentries Defensivos Pré-Escrita*: Revalidação de ambiente `SPOT_TESTNET`, adapter Testnet, endpoint `testnet.binance.vision` (proibição de `api.binance.com`) e target `FinBot/Binance/SpotTestnet`.
+  - *Framework Constitucional LIVE_CAPITAL_GATE*: Formalização das regras de governança e critérios objetivos (estabilidade, confiabilidade de execução, drawdown, quantidade mínima de operações, resultado líquido após custos, validação fora da amostra, Paper Soak e Testnet Soak) antes de qualquer liberação de capital real em Produção.
+- 391 testes automatizados (379 passando e 12 skipped no `.venv` padrão; 391 passando 100% no `.venv-research`; zero chamadas de rede externas nos testes). 19 testes focados em `tests/test_testnet_order_validation.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Spot Testnet Operational Validation (FASE 8.4C2B)
-- Módulo `src/finbot/testnet_order_validation.py` implementado com a ferramenta operacional controlada para validação e execução assistida da primeira ordem na Binance Spot Testnet (`https://testnet.binance.vision`) utilizando capital fictício (~6 USDT):
-  - *Modo Read-Only por Padrão (Dry Preview)*: Sem flag de confirmação, o comando executa exclusivamente pré-visualização completa: leitura de filtros de `BTC/USDT`, preço atual via `fetch_ticker`, dimensionamento dinâmico da candidata, validação no `RiskEngine`, `MarketFilterGuard` e comprovação de isolamento de produção. Emite `TESTNET_WRITE_EXECUTED = NO` e aborta fail-closed antes de qualquer escrita.
-  - *Armamento Explícito Inequívoco*: Escrita exige categoricamente `--confirm-testnet-order`. Flags genéricas (`--yes`, `--force`, `--live`) são rejeitadas preventivamente.
-  - *Sentries Defensivos Pré-Escrita*: `verify_testnet_write_sentries` re-valida ambiente `SPOT_TESTNET`, `testnet_execution_enabled == True`, adapter exclusivo de Testnet, endpoint CCXT com `testnet.binance.vision` e nunca `api.binance.com`, e target `FinBot/Binance/SpotTestnet`. Emite sinal mandatório: `TARGET_ENVIRONMENT = BINANCE_SPOT_TESTNET`, `PRODUCTION_TARGET = NO`, `TESTNET_WRITE_ARMED = YES`.
-  - *Pipeline Completo sem Atalhos*: `OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`.
-  - *Cálculo Dinâmico Próximo do Mínimo*: Quantidade calculada dinamicamente para ~6.00 USDT fictícios respeitando `minNotional`, `stepSize`, `minQty` e o teto `live_micro_order_max_notional` (15.0 USDT).
-  - *Idempotência e Falha Ambígua*: `clientOrderId` determinístico (`finbot_<hash>`), persistência prévia de `PENDING_SUBMISSION`. Timeouts resultam estritamente em `UNKNOWN` sem retry automático de submissão.
-  - *Reconciliação por Polling Limitado*: Consulta periódica limitada via `reconcile_order` por `clientOrderId`.
-  - *Higienização Absoluta de Saída*: Zero segredos, chaves de API, secrets ou assinaturas exibidos em relatórios ou logs.
-  - *Diretriz Institucional*: Formalização de que dinheiro real não será utilizado apenas porque o pipeline técnico está pronto; aprovação futura do `LIVE_CAPITAL_GATE` é constitucionalmente obrigatória antes de qualquer escrita em Produção.
-- 389 testes automatizados (377 passando e 12 skipped no `.venv` padrão; 389 passando 100% no `.venv-research`; zero chamadas de rede). 17 novos testes focados em `tests/test_testnet_order_validation.py`.
-- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
+- Primeira ordem externa Spot Testnet executada com sucesso e confirmada pelo operador:
+  - `ENVIRONMENT = spot_testnet`
+  - `SYMBOL = BTC/USDT`
+  - `SIDE = BUY`
+  - `TYPE = MARKET`
+  - `REQUESTED_NOTIONAL = ~6.63 USDT fictícios`
+  - `EXECUTED_QUANTITY = 0.00008000 BTC`
+  - `ORDER_STATUS = FILLED`
+  - `FINAL_STATE = FILLED`
+  - `RECONCILIATION_STATUS = CONFIRMED`
+  - `TESTNET_ORDERS_SENT = 1`
+  - `PRODUCTION_ORDERS_SENT = 0`
+  - `PRODUCTION_WRITE_ENABLED = NO`
+- Módulo `src/finbot/testnet_order_validation.py` implementado com ferramenta de teste assistido.
 
 ### Pre-Flight Operational Command (FASE 8.4C1A)
 - Módulo `src/finbot/preflight.py` implementado com o comando operacional `python -m finbot.preflight` para validação pré-voo hermética, segura e unificada antes de qualquer futura micro-ordem real:

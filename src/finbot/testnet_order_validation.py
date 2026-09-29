@@ -1,7 +1,11 @@
-"""Módulo de validação operacional e execução controlada na Binance Spot Testnet (FASE 8.4C2B).
+"""Módulo de validação operacional e ciclo de vida de execução na Binance Spot Testnet (FASE 8.4C2C).
 
-Fornece a ferramenta operacional controlada para validação e emissão da PRIMEIRA ORDEM
-na Binance Spot Testnet oficial (https://testnet.binance.vision) utilizando saldo fictício.
+Fornece a ferramenta operacional controlada para validação dos ciclos essenciais de execução
+na Binance Spot Testnet oficial (https://testnet.binance.vision) utilizando saldo fictício:
+1. SELL MARKET (venda de no máximo a quantidade fictícia adquirida)
+2. LIMIT ORDER (ordem limite com preço seguro e rastreável)
+3. CANCEL (cancelamento controlado de ordem limite aberta com prevenção de cancel cego se FILLED)
+4. RECONCILIAÇÃO (reconciliação determinística de todos os estados do ciclo de vida)
 
 REGRAS CONSTITUCIONAIS E DE ISOLAMENTO:
 1. READ-ONLY POR PADRÃO: Sem confirmação explícita, executa exclusivamente PREVIEW e aborta
@@ -19,6 +23,8 @@ REGRAS CONSTITUCIONAIS E DE ISOLAMENTO:
    PENDING_SUBMISSION, timeout tratado estritamente como UNKNOWN sem auto-retry e reconciliação por polling
    limitado.
 7. SIGILO TOTAL: Proibição absoluta de impressão de API keys, secrets, assinaturas ou payloads confidenciais.
+8. LIVE CAPITAL GATE: Produção com capital real permanece expressamente bloqueada até aprovação futura
+   de gate de governança operacional e evidência de desempenho.
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ from finbot.live_executor import (
     GuardedLiveExecutionEngine,
     LiveOrderStorage,
     MicroOrderCapExceededError,
+    OrderNotCancelableError,
     OrderStatus,
     RealOrderSubmissionBlockedError,
 )
@@ -86,6 +93,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_TARGET_NOTIONAL = Decimal("6.00")
 SYMBOL_BTC_USDT = "BTC/USDT"
 
+ACTION_SELL_MARKET = "sell_market"
+ACTION_BUY_MARKET = "buy_market"
+ACTION_LIMIT_CANCEL = "limit_cancel"
+
 
 # =============================================================================
 # ESTRUTURAS DE DADOS DO RELATÓRIO E PREVIEW
@@ -95,16 +106,19 @@ SYMBOL_BTC_USDT = "BTC/USDT"
 class TestnetValidationPreview:
     """Resultado da avaliação prévia em modo READ-ONLY (Dry Preview)."""
 
+    action: str = ACTION_SELL_MARKET
     environment: str = "SPOT_TESTNET"
     symbol: str = SYMBOL_BTC_USDT
-    side: str = "BUY"
+    side: str = "SELL"
     order_type: str = "MARKET"
     estimated_notional: Decimal | None = None
     quantity: Decimal | None = None
     reference_price: Decimal | None = None
+    price: Decimal | None = None  # Para ordens LIMIT
     min_amount: Decimal | None = None
     step_size: Decimal | None = None
     min_notional: Decimal | None = None
+    available_balance: Decimal | None = None
     risk_engine_pass: bool = False
     market_filter_guard_pass: bool = False
     production_isolation_pass: bool = False
@@ -117,12 +131,14 @@ class TestnetValidationPreview:
 class TestnetOrderExecutionReport:
     """Relatório estruturado da execução e reconciliação da ordem na Testnet."""
 
+    action: str = ACTION_SELL_MARKET
     environment: str = "SPOT_TESTNET"
     symbol: str = SYMBOL_BTC_USDT
-    side: str = "BUY"
+    side: str = "SELL"
     order_type: str = "MARKET"
     requested_notional: Decimal = Decimal("0")
     sanitized_quantity: Decimal = Decimal("0")
+    price: Decimal | None = None
     client_order_id: str = ""
     order_id: str | None = None
     order_status: str = ""
@@ -133,12 +149,13 @@ class TestnetOrderExecutionReport:
     testnet_orders_sent: int = 0
     production_orders_sent: int = 0
     production_write_enabled: bool = False
+    cancel_status: str | None = None
     lifecycle_transitions: list[str] = field(default_factory=list)
     error_messages: list[str] = field(default_factory=list)
 
 
 # =============================================================================
-# CÁLCULO DINÂMICO DE QUANTIDADE CANDIDATA
+# CÁLCULOS DINÂMICOS DE CANDIDATAS (BUY, SELL, LIMIT)
 # =============================================================================
 
 def calculate_testnet_order_candidate(
@@ -147,16 +164,7 @@ def calculate_testnet_order_candidate(
     max_cap: Decimal,
     target_notional: Decimal = DEFAULT_TARGET_NOTIONAL,
 ) -> tuple[Decimal, Decimal, Decimal] | None:
-    """Calcula dinamicamente a quantidade e o notional válidos para a ordem de teste.
-
-    Retorna (sanitized_quantity, candidate_notional, current_price) ou None se inviável.
-    Regras estritas:
-    - candidate_notional próximo de target_notional (~6 USDT)
-    - candidate_notional >= filters.min_cost (minNotional com margem)
-    - candidate_notional <= max_cap (micro-order cap)
-    - sanitized_quantity múltiplo exato de filters.amount_step (stepSize)
-    - sanitized_quantity >= filters.min_amount (minQty)
-    """
+    """Calcula dinamicamente a quantidade e o notional válidos para BUY MARKET."""
     if current_price <= 0 or current_price.is_nan() or current_price.is_infinite():
         return None
 
@@ -166,7 +174,6 @@ def calculate_testnet_order_candidate(
     if filters.min_cost > max_cap:
         return None
 
-    # Ajusta o notional alvo se min_cost exigir mais do que o default de 6 USDT
     effective_target = max(target_notional, filters.min_cost * Decimal("1.10"))
     if effective_target > max_cap:
         return None
@@ -193,12 +200,10 @@ def calculate_testnet_order_candidate(
 
     cand_notional = norm_qty * current_price
 
-    # Margem defensiva para garantir que nunca fica abaixo do min_cost
     if cand_notional < filters.min_cost:
         norm_qty += filters.amount_step
         cand_notional = norm_qty * current_price
 
-    # Garantia de conformidade com o teto de micro-ordem
     if cand_notional > max_cap:
         return None
 
@@ -206,6 +211,145 @@ def calculate_testnet_order_candidate(
         return None
 
     return norm_qty, cand_notional, current_price
+
+
+def calculate_testnet_sell_candidate(
+    filters: MarketFilters,
+    current_price: Decimal,
+    available_btc: Decimal,
+    max_cap: Decimal,
+    max_sell_qty: Decimal = Decimal("0.00008000"),
+) -> tuple[Decimal, Decimal, Decimal] | None:
+    """Calcula dinamicamente a quantidade e o notional válidos para SELL MARKET.
+
+    Regras estritas:
+    - Vende no máximo o saldo livre disponível de BTC
+    - Limita ao montante adquirido na validação anterior (max_sell_qty)
+    - Quantidade sanitizada segundo stepSize e minQty
+    - Notional calculado atende a minNotional da exchange
+    - Notional não ultrapassa micro_order_cap
+    """
+    if current_price <= 0 or current_price.is_nan() or current_price.is_infinite():
+        return None
+
+    if available_btc <= 0 or available_btc.is_nan() or available_btc.is_infinite():
+        return None
+
+    if max_cap <= 0 or max_cap.is_nan() or max_cap.is_infinite():
+        return None
+
+    # Quantidade alvo inicial: limitada ao saldo livre e ao teto de venda da validação anterior
+    target_qty = min(available_btc, max_sell_qty)
+
+    valid_amt, norm_qty, _ = sanitize_amount(
+        amount=target_qty,
+        min_amount=filters.min_amount,
+        amount_step=filters.amount_step,
+        max_amount=filters.max_amount,
+    )
+    if not valid_amt or norm_qty <= 0 or norm_qty > available_btc:
+        return None
+
+    cand_notional = norm_qty * current_price
+
+    # Se a quantidade alvo for inferior ao minNotional da exchange (~5 USDT):
+    # verifica se é possível aumentar a quantidade respeitando o saldo livre
+    if cand_notional < filters.min_cost:
+        required_qty = (filters.min_cost * Decimal("1.05")) / current_price
+        steps = (required_qty / filters.amount_step).to_integral_value(rounding=ROUND_CEILING)
+        cand_needed = steps * filters.amount_step
+
+        if cand_needed <= available_btc:
+            valid_adj, adj_qty, _ = sanitize_amount(
+                amount=cand_needed,
+                min_amount=filters.min_amount,
+                amount_step=filters.amount_step,
+                max_amount=filters.max_amount,
+            )
+            if valid_adj and adj_qty <= available_btc:
+                norm_qty = adj_qty
+                cand_notional = norm_qty * current_price
+            else:
+                return None
+        else:
+            # Saldo livre total é insuficiente para atender minNotional
+            return None
+
+    if cand_notional > max_cap:
+        return None
+
+    if cand_notional < filters.min_cost:
+        return None
+
+    return norm_qty, cand_notional, current_price
+
+
+def calculate_testnet_limit_candidate(
+    filters: MarketFilters,
+    current_price: Decimal,
+    max_cap: Decimal,
+    discount: Decimal = Decimal("0.85"),
+    target_notional: Decimal = DEFAULT_TARGET_NOTIONAL,
+) -> tuple[Decimal, Decimal, Decimal] | None:
+    """Calcula preço limite seguro, quantidade e notional para uma ordem LIMIT (BUY).
+
+    Posiciona a ordem defensivamente (por default 15% abaixo do preço de mercado)
+    para garantir permanência no book durante o teste de cancelamento.
+    """
+    if current_price <= 0 or current_price.is_nan() or current_price.is_infinite():
+        return None
+
+    if max_cap <= 0 or max_cap.is_nan() or max_cap.is_infinite():
+        return None
+
+    # Preço com desconto seguro (ex: 15% abaixo do ticker)
+    raw_limit_price = current_price * discount
+    valid_px, limit_price, _ = sanitize_price(
+        price=raw_limit_price,
+        min_price=filters.min_price,
+        price_step=filters.price_step,
+        max_price=filters.max_price,
+    )
+    if not valid_px or limit_price <= 0:
+        return None
+
+    effective_target = max(target_notional, filters.min_cost * Decimal("1.10"))
+    if effective_target > max_cap:
+        return None
+
+    if filters.amount_step <= 0:
+        return None
+
+    raw_qty = effective_target / limit_price
+    steps = (raw_qty / filters.amount_step).to_integral_value(rounding=ROUND_CEILING)
+    cand_qty = steps * filters.amount_step
+
+    if cand_qty < filters.min_amount:
+        min_steps = (filters.min_amount / filters.amount_step).to_integral_value(rounding=ROUND_CEILING)
+        cand_qty = min_steps * filters.amount_step
+
+    valid_amt, norm_qty, _ = sanitize_amount(
+        amount=cand_qty,
+        min_amount=filters.min_amount,
+        amount_step=filters.amount_step,
+        max_amount=filters.max_amount,
+    )
+    if not valid_amt:
+        return None
+
+    cand_notional = norm_qty * limit_price
+
+    if cand_notional < filters.min_cost:
+        norm_qty += filters.amount_step
+        cand_notional = norm_qty * limit_price
+
+    if cand_notional > max_cap:
+        return None
+
+    if cand_notional < filters.min_cost:
+        return None
+
+    return norm_qty, limit_price, cand_notional
 
 
 # =============================================================================
@@ -272,7 +416,6 @@ def verify_testnet_write_sentries(
     if client is not None:
         verify_testnet_endpoint(client)
     else:
-        # Verifica se há URLs em mock/fake
         urls = getattr(adapter, "urls", None)
         if isinstance(urls, dict):
             urls_str = str(urls)
@@ -354,10 +497,7 @@ def reconcile_with_bounded_polling(
     max_attempts: int = 5,
     poll_delay_seconds: float = 1.0,
 ) -> ExchangeOrderResult:
-    """Executa reconciliação determinística da ordem via polling limitado.
-
-    Não cria loop infinito. Retorna o resultado final de fetch_order / reconcile_order.
-    """
+    """Executa reconciliação determinística da ordem via polling limitado."""
     last_result: ExchangeOrderResult | None = None
 
     for attempt in range(1, max_attempts + 1):
@@ -367,7 +507,6 @@ def reconcile_with_bounded_polling(
             logger.warning("Falha na tentativa %d de reconciliação de %s: %s", attempt, client_order_id, exc)
 
         if last_result is not None:
-            # Se atingiu estado final definitivo, encerra polling imediatamente
             if last_result.status in (OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED):
                 break
 
@@ -375,7 +514,6 @@ def reconcile_with_bounded_polling(
             time.sleep(poll_delay_seconds)
 
     if last_result is None:
-        # Fallback local seguro
         order_dict = engine.storage.get_order_by_client_order_id(client_order_id)
         status = OrderStatus(order_dict["current_status"]) if order_dict else OrderStatus.UNKNOWN
         last_result = ExchangeOrderResult(
@@ -399,6 +537,7 @@ def reconcile_with_bounded_polling(
 # =============================================================================
 
 def run_testnet_order_validation(
+    action: str = ACTION_SELL_MARKET,
     confirm_testnet_order: bool = False,
     config: Config | None = None,
     credential_provider: CredentialProvider | None = None,
@@ -409,19 +548,19 @@ def run_testnet_order_validation(
     max_reconcile_attempts: int = 5,
     poll_delay_seconds: float = 1.0,
 ) -> tuple[TestnetValidationPreview | None, TestnetOrderExecutionReport | None]:
-    """Orquestrador do comando operacional de validação de ordem na Binance Spot Testnet.
+    """Orquestrador operacional para validação e execução de ordens na Binance Spot Testnet.
 
-    Se confirm_testnet_order == False:
-        Executa DRY PREVIEW (READ-ONLY) e retorna (preview, None).
-    Se confirm_testnet_order == True:
-        Executa validação armada, submissão da ordem e reconciliação determinística, retornando (None, report).
+    Ações suportadas:
+    - 'sell_market': Vende quantidade fictícia de BTC adquirida anteriormente
+    - 'buy_market': Compra quantidade fictícia próxima do mínimo operacional
+    - 'limit_cancel': Cria ordem LIMIT distante e executa cancelamento controlado
     """
     base_cfg = config or get_config()
     provider = credential_provider or WindowsCredentialProvider.for_environment(
         BinanceEnvironment.SPOT_TESTNET
     )
 
-    # 1. Configuração do Adapter Spot Testnet
+    # 1. Adapter Spot Testnet
     testnet_adapter = adapter
     if testnet_adapter is None:
         testnet_adapter = BinanceSpotTestnetOrderAdapter(
@@ -436,7 +575,16 @@ def run_testnet_order_validation(
         raise RuntimeError(f"Mercado {SYMBOL_BTC_USDT} não encontrado na Binance Spot Testnet.")
     filters = extract_market_filters(btc_market)
 
-    # 3. Obter Preço de Referência
+    # 3. Consulta de Saldos na Testnet
+    balances = testnet_adapter.get_balances()
+    usdt_bal = balances.get("USDT", {})
+    btc_bal = balances.get("BTC", {})
+    available_usdt = Decimal(str(usdt_bal.get("free", "0")))
+    available_btc = Decimal(str(btc_bal.get("free", "0")))
+    locked_usdt = Decimal(str(usdt_bal.get("used", "0")))
+    locked_btc = Decimal(str(btc_bal.get("used", "0")))
+
+    # 4. Obter Preço de Referência
     ref_price = current_price
     if ref_price is None:
         if hasattr(testnet_adapter, "fetch_ticker"):
@@ -447,50 +595,85 @@ def run_testnet_order_validation(
         if ref_price is None:
             raise RuntimeError(f"Não foi possível obter preço de mercado para {SYMBOL_BTC_USDT}.")
 
-    # 4. Cálculo Dinâmico da Ordem Candidata
+    # 5. Cálculo Dinâmico conforme Ação
     micro_cap = Decimal(str(base_cfg.live_micro_order_max_notional))
-    candidate = calculate_testnet_order_candidate(
-        filters=filters,
-        current_price=ref_price,
-        max_cap=micro_cap,
-        target_notional=DEFAULT_TARGET_NOTIONAL,
-    )
-    if candidate is None:
-        raise RuntimeError(
-            f"Não foi possível calcular ordem candidata válida próxima de {DEFAULT_TARGET_NOTIONAL} USDT "
-            f"respeitando minNotional ({filters.min_cost}) e micro-order cap ({micro_cap} USDT)."
-        )
-    cand_qty, cand_notional, cand_price = candidate
+    cand_qty: Decimal
+    cand_notional: Decimal
+    limit_px: Decimal | None = None
+    side: str
+    order_type: str
 
-    # 5. Validação do Risk Engine
+    if action == ACTION_SELL_MARKET:
+        side = "SELL"
+        order_type = "MARKET"
+        sell_cand = calculate_testnet_sell_candidate(
+            filters=filters,
+            current_price=ref_price,
+            available_btc=available_btc,
+            max_cap=micro_cap,
+        )
+        if sell_cand is None:
+            raise RuntimeError(
+                f"Incapaz de calcular venda válida de BTC. Saldo livre de BTC ({available_btc}) "
+                f"pode ser insuficiente para atender minNotional ({filters.min_cost} USDT)."
+            )
+        cand_qty, cand_notional, _ = sell_cand
+
+    elif action == ACTION_LIMIT_CANCEL:
+        side = "BUY"
+        order_type = "LIMIT"
+        limit_cand = calculate_testnet_limit_candidate(
+            filters=filters,
+            current_price=ref_price,
+            max_cap=micro_cap,
+            discount=Decimal("0.85"),
+        )
+        if limit_cand is None:
+            raise RuntimeError("Incapaz de calcular ordem LIMIT válida dentro dos limites de mercado.")
+        cand_qty, limit_px, cand_notional = limit_cand
+
+    else:  # ACTION_BUY_MARKET
+        side = "BUY"
+        order_type = "MARKET"
+        buy_cand = calculate_testnet_order_candidate(
+            filters=filters,
+            current_price=ref_price,
+            max_cap=micro_cap,
+            target_notional=DEFAULT_TARGET_NOTIONAL,
+        )
+        if buy_cand is None:
+            raise RuntimeError("Incapaz de calcular ordem BUY MARKET válida.")
+        cand_qty, cand_notional, _ = buy_cand
+
+    # 6. Validação do Risk Engine
     risk_decision = RiskDecision(
         allowed=True,
         code=RiskDecisionCode.ALLOWED,
-        reason="Assisted Spot Testnet order validation authorized by operator",
-        action="BUY",
+        reason=f"Assisted Spot Testnet {action} authorized by operator",
+        action=side,
         target_notional=cand_notional,
     )
-    risk_pass = risk_decision.allowed and risk_decision.action == "BUY"
+    risk_pass = risk_decision.allowed and risk_decision.action == side
 
-    # 6. Validação do MarketFilterGuard
+    # 7. Validação do MarketFilterGuard
     guard = MarketFilterGuard(filters)
     dummy_intent = OrderIntent(
         symbol=SYMBOL_BTC_USDT,
-        side="BUY",
-        order_type="MARKET",
+        side=side,
+        order_type=order_type,
         quantity=cand_qty,
-        price=None,
+        price=limit_px,
         requested_notional=cand_notional,
         strategy_name="testnet_validation",
         strategy_version="1.0.0",
-        signal="BUY",
+        signal=side,
         created_at=datetime.now(timezone.utc).isoformat(),
         correlation_id=correlation_id or f"preview_{int(time.time())}",
     )
     filter_decision = guard.validate_order_intent(dummy_intent)
     guard_pass = filter_decision.is_valid
 
-    # 7. Validação de Isolamento de Produção
+    # 8. Validação de Isolamento de Produção
     isolation_pass, isolation_errors = check_production_isolation(provider)
 
     # =========================================================================
@@ -498,16 +681,19 @@ def run_testnet_order_validation(
     # =========================================================================
     if not confirm_testnet_order:
         preview = TestnetValidationPreview(
+            action=action,
             environment=BinanceEnvironment.SPOT_TESTNET.value,
             symbol=SYMBOL_BTC_USDT,
-            side="BUY",
-            order_type="MARKET",
+            side=side,
+            order_type=order_type,
             estimated_notional=cand_notional,
             quantity=cand_qty,
-            reference_price=cand_price,
+            reference_price=ref_price,
+            price=limit_px,
             min_amount=filters.min_amount,
             step_size=filters.amount_step,
             min_notional=filters.min_cost,
+            available_balance=available_btc if side == "SELL" else available_usdt,
             risk_engine_pass=risk_pass,
             market_filter_guard_pass=guard_pass,
             production_isolation_pass=isolation_pass,
@@ -528,45 +714,42 @@ def run_testnet_order_validation(
         live_micro_order_max_notional=base_cfg.live_micro_order_max_notional,
     )
 
-    # 8. Sentries Pré-Escrita (Fail-Closed)
+    # 9. Sentries Pré-Escrita (Fail-Closed)
     verify_testnet_write_sentries(
         config=armed_cfg,
         adapter=testnet_adapter,
         credential_provider=provider,
     )
 
-    # 9. Consulta de Saldos e Snapshot para Reconciliação
-    balances = testnet_adapter.get_balances()
-    usdt_bal = balances.get("USDT", {})
-    btc_bal = balances.get("BTC", {})
+    # 10. Snapshot de Saldos para Reconciliação
     account_snapshot = AccountStateSnapshot(
         symbol=SYMBOL_BTC_USDT,
         base_asset="BTC",
         quote_asset="USDT",
-        base_free=Decimal(str(usdt_bal.get("free", "0"))),  # pass quote
-        base_locked=Decimal(str(btc_bal.get("used", "0"))),
-        quote_free=Decimal(str(usdt_bal.get("free", "0"))),
-        quote_locked=Decimal(str(usdt_bal.get("used", "0"))),
+        base_free=available_btc,
+        base_locked=locked_btc,
+        quote_free=available_usdt,
+        quote_locked=locked_usdt,
         captured_at=datetime.now(timezone.utc).isoformat(),
     )
 
-    # 10. Construção da OrderIntent Real
-    corr_id = correlation_id or f"testnet_val_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    # 11. Construção da OrderIntent Real
+    corr_id = correlation_id or f"testnet_{action}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     order_intent = OrderIntent(
         symbol=SYMBOL_BTC_USDT,
-        side="BUY",
-        order_type="MARKET",
+        side=side,
+        order_type=order_type,
         quantity=cand_qty,
-        price=None,
+        price=limit_px,
         requested_notional=cand_notional,
         strategy_name="testnet_validation",
         strategy_version="1.0.0",
-        signal="BUY",
+        signal=side,
         created_at=datetime.now(timezone.utc).isoformat(),
         correlation_id=corr_id,
     )
 
-    # 11. Avaliação pelo LiveSafetyGate
+    # 12. Avaliação pelo LiveSafetyGate
     safety_gate = LiveSafetyGate()
     safety_decision = safety_gate.evaluate(
         intent=order_intent,
@@ -581,7 +764,7 @@ def run_testnet_order_validation(
         )
     approved_intent = safety_decision.approved_intent
 
-    # 12. Inicialização do GuardedLiveExecutionEngine
+    # 13. Inicialização do GuardedLiveExecutionEngine
     order_storage = storage or LiveOrderStorage("data/testnet_orders.sqlite3")
     engine = GuardedLiveExecutionEngine(
         adapter=testnet_adapter,
@@ -589,32 +772,56 @@ def run_testnet_order_validation(
         config=armed_cfg,
     )
 
-    # 13. Submissão da Ordem
+    # 14. Submissão da Ordem
     client_order_id = generate_client_order_id(corr_id)
     submit_result = engine.execute(approved_intent)
 
-    # 14. Reconciliação por Polling Limitado
-    final_result = reconcile_with_bounded_polling(
+    # 15. Reconciliação Inicial por Polling Limitado
+    initial_recon = reconcile_with_bounded_polling(
         engine=engine,
         client_order_id=client_order_id,
         max_attempts=max_reconcile_attempts,
         poll_delay_seconds=poll_delay_seconds,
     )
 
-    # 15. Montagem do Relatório Operacional
+    cancel_status_recorded: str | None = None
+    final_result: ExchangeOrderResult = initial_recon
+
+    # 16. Tratamento Específico para Ação LIMIT_CANCEL
+    if action == ACTION_LIMIT_CANCEL:
+        # Se a ordem preencheu antes do cancelamento, NÃO tentar cancelar cegamente
+        if initial_recon.status == OrderStatus.FILLED:
+            logger.info("Ordem LIMIT foi preenchida na exchange antes do cancelamento.")
+            cancel_status_recorded = "NOT_CANCELED_ORDER_ALREADY_FILLED"
+            final_result = initial_recon
+        elif initial_recon.status in (OrderStatus.ACKNOWLEDGED, OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED):
+            logger.info("Ordem LIMIT confirmada aberta. Executando cancelamento controlado...")
+            cancel_res = engine.cancel_order(client_order_id)
+            final_recon = engine.reconcile_order(client_order_id)
+            final_result = final_recon or cancel_res
+            cancel_status_recorded = final_result.status.value
+        else:
+            cancel_status_recorded = f"CANCEL_SKIPPED_STATUS_{initial_recon.status.value}"
+            final_result = initial_recon
+
+    # 17. Montagem do Relatório Operacional
     history = order_storage.get_lifecycle_history(corr_id)
     transitions = [f"{rec.previous_status} -> {rec.new_status} ({rec.reason})" for rec in history]
 
-    recon_status = "CONFIRMED" if final_result.status in (OrderStatus.FILLED, OrderStatus.ACKNOWLEDGED) else "PENDING_OR_UNKNOWN"
+    recon_status = "CONFIRMED" if final_result.status in (
+        OrderStatus.FILLED, OrderStatus.ACKNOWLEDGED, OrderStatus.CANCELED
+    ) else "PENDING_OR_UNKNOWN"
     orders_sent = 1 if final_result.status != OrderStatus.REJECTED else 0
 
     report = TestnetOrderExecutionReport(
+        action=action,
         environment=BinanceEnvironment.SPOT_TESTNET.value,
         symbol=SYMBOL_BTC_USDT,
-        side="BUY",
-        order_type="MARKET",
+        side=side,
+        order_type=order_type,
         requested_notional=cand_notional,
         sanitized_quantity=cand_qty,
+        price=limit_px,
         client_order_id=client_order_id,
         order_id=final_result.exchange_order_id,
         order_status=final_result.status.value,
@@ -625,6 +832,7 @@ def run_testnet_order_validation(
         testnet_orders_sent=orders_sent,
         production_orders_sent=0,
         production_write_enabled=False,
+        cancel_status=cancel_status_recorded,
         lifecycle_transitions=transitions,
     )
 
@@ -641,16 +849,22 @@ def print_preview(preview: TestnetValidationPreview) -> None:
     print("       FinBot — BINANCE SPOT TESTNET ORDER PREVIEW (READ-ONLY)    ")
     print("=" * 65)
     print("TESTNET_ORDER_PREVIEW")
+    print(f"ACTION                         : {preview.action.upper()}")
     print(f"ENVIRONMENT                    : {preview.environment}")
     print(f"SYMBOL                         : {preview.symbol}")
     print(f"SIDE                           : {preview.side}")
     print(f"TYPE                           : {preview.order_type}")
-    if preview.estimated_notional is not None:
-        print(f"ESTIMATED_NOTIONAL             : {preview.estimated_notional:.8f} USDT")
+    if preview.price is not None:
+        print(f"LIMIT_PRICE                    : {preview.price:.2f} USDT")
     if preview.quantity is not None:
         print(f"QUANTITY                       : {preview.quantity:.8f} BTC")
+    if preview.estimated_notional is not None:
+        print(f"ESTIMATED_NOTIONAL             : {preview.estimated_notional:.8f} USDT")
     if preview.reference_price is not None:
         print(f"REFERENCE_PRICE                : {preview.reference_price:.2f} USDT")
+    if preview.available_balance is not None:
+        bal_asset = "BTC" if preview.side == "SELL" else "USDT"
+        print(f"AVAILABLE_{bal_asset}_BALANCE         : {preview.available_balance:.8f} {bal_asset}")
     if preview.min_notional is not None:
         print(f"MIN_NOTIONAL (EXCHANGE)        : {preview.min_notional:.2f} USDT")
     print(f"RISK_ENGINE                    : {'PASS' if preview.risk_engine_pass else 'FAIL'}")
@@ -674,10 +888,13 @@ def print_report(report: TestnetOrderExecutionReport) -> None:
     print("=" * 65)
     print("       FinBot — BINANCE SPOT TESTNET ORDER EXECUTION REPORT       ")
     print("=" * 65)
+    print(f"ACTION                         : {report.action.upper()}")
     print(f"ENVIRONMENT                    : {report.environment}")
     print(f"SYMBOL                         : {report.symbol}")
     print(f"SIDE                           : {report.side}")
     print(f"TYPE                           : {report.order_type}")
+    if report.price is not None:
+        print(f"LIMIT_PRICE                    : {report.price:.2f} USDT")
     print(f"REQUESTED_NOTIONAL             : {report.requested_notional:.8f} USDT")
     print(f"SANITIZED_QUANTITY             : {report.sanitized_quantity:.8f} BTC")
     print(f"CLIENT_ORDER_ID                : {report.client_order_id}")
@@ -686,6 +903,8 @@ def print_report(report: TestnetOrderExecutionReport) -> None:
     print(f"EXECUTED_QUANTITY              : {report.executed_quantity:.8f} BTC")
     avg_str = f"{report.average_price:.2f} USDT" if report.average_price is not None else "N/A"
     print(f"AVERAGE_PRICE                  : {avg_str}")
+    if report.cancel_status is not None:
+        print(f"CANCEL_STATUS                  : {report.cancel_status}")
     print(f"FINAL_STATE                    : {report.final_state}")
     print(f"RECONCILIATION_STATUS          : {report.reconciliation_status}")
     print("-" * 65)
@@ -706,13 +925,19 @@ def print_report(report: TestnetOrderExecutionReport) -> None:
 
 def parse_args(args: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="FinBot — Binance Spot Testnet Operational Order Validation",
+        description="FinBot — Binance Spot Testnet Operational Order & Lifecycle Validation",
         prog="python -m finbot.testnet_order_validation",
+    )
+    parser.add_argument(
+        "--action",
+        choices=[ACTION_SELL_MARKET, ACTION_BUY_MARKET, ACTION_LIMIT_CANCEL],
+        default=ACTION_SELL_MARKET,
+        help="Ação operacional na Spot Testnet (default: sell_market).",
     )
     parser.add_argument(
         "--confirm-testnet-order",
         action="store_true",
-        help="Autorização explícita e inequívoca para submissão de ordem de teste na Spot Testnet.",
+        help="Autorização explícita e inequívoca para submissão na Spot Testnet.",
     )
     # Flags genéricas desautorizadas para captura defensiva
     parser.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)
@@ -736,9 +961,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     confirm = bool(parsed.confirm_testnet_order)
+    action = str(parsed.action)
 
     try:
-        preview, report = run_testnet_order_validation(confirm_testnet_order=confirm)
+        preview, report = run_testnet_order_validation(
+            action=action,
+            confirm_testnet_order=confirm,
+        )
         if preview is not None:
             print_preview(preview)
             return 0 if preview.ready_to_execute else 1
