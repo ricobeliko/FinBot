@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import ccxt
 
 from finbot.config import Config, get_config
-from finbot.credentials import FakeCredentialProvider, WindowsCredentialProvider
+from finbot.credentials import BinanceCredentials, FakeCredentialProvider, WindowsCredentialProvider
 from finbot.private_exchange import (
     AccountSnapshot,
     AccountStatus,
@@ -74,7 +74,14 @@ class TestPrivateExchangeConfigAndSecurity(unittest.TestCase):
                 with self.assertRaises(CredentialsMissingError):
                     BinancePrivateExchange(cfg_live, credential_provider=provider)
 
-    def test_default_provider_is_windows_and_fails_closed_when_empty(self) -> None:
+    @patch.object(
+        WindowsCredentialProvider,
+        "get_binance_credentials",
+        side_effect=CredentialsMissingError(
+            "Credenciais da Binance não encontradas no Windows Credential Manager (target='FinBot/Binance/Production')."
+        ),
+    )
+    def test_default_provider_is_windows_and_fails_closed_when_empty(self, mock_get_creds: MagicMock) -> None:
         """4b. Quando nenhum provider é passado, usa WindowsCredentialProvider e falha se vazio."""
         cfg_live = Config(trading_mode="live")
         mock_ccxt = MagicMock()
@@ -83,9 +90,51 @@ class TestPrivateExchangeConfigAndSecurity(unittest.TestCase):
             BinancePrivateExchange(cfg_live, client=mock_ccxt)
 
         self.assertIn("Windows Credential Manager", str(ctx.exception))
+        mock_get_creds.assert_called_once()
         # Prova que nenhuma chamada de rede foi efetuada e nenhuma ordem foi enviada
         mock_ccxt.fetch_balance.assert_not_called()
         mock_ccxt.create_order.assert_not_called()
+
+    @patch.object(
+        WindowsCredentialProvider,
+        "get_binance_credentials",
+        return_value=BinanceCredentials(api_key="simulated_mock_key", api_secret="simulated_mock_secret"),
+    )
+    def test_default_provider_selected_is_windows_credential_provider(self, mock_get_creds: MagicMock) -> None:
+        """4c. Verifica que o provider selecionado por padrão é WindowsCredentialProvider e isolado do host."""
+        cfg_live = Config(trading_mode="live")
+        mock_ccxt = MagicMock()
+        client = BinancePrivateExchange(cfg_live, client=mock_ccxt)
+
+        # A: default provider selecionado é WindowsCredentialProvider
+        self.assertIsInstance(client._credential_provider, WindowsCredentialProvider)
+        self.assertEqual(client._credential_provider.target_name, "FinBot/Binance/Production")
+        self.assertEqual(client._api_key, "simulated_mock_key")
+        self.assertEqual(client._api_secret, "simulated_mock_secret")
+        mock_get_creds.assert_called_once()
+
+        # E: nenhum secret aparece em repr ou str
+        self.assertNotIn("simulated_mock_secret", repr(client))
+        self.assertNotIn("simulated_mock_secret", str(client))
+
+    @patch.object(
+        WindowsCredentialProvider,
+        "get_binance_credentials",
+        side_effect=CredentialsMissingError("Credenciais não encontradas no Windows Credential Manager"),
+    )
+    def test_host_credentials_do_not_leak_or_influence_test(self, mock_get_creds: MagicMock) -> None:
+        """4d. Existência de credenciais reais na máquina do host não influencia o teste (hermético)."""
+        cfg_live = Config(trading_mode="live")
+        mock_ccxt = MagicMock()
+        with self.assertLogs("finbot.private_exchange", level="ERROR") as log_ctx:
+            with self.assertRaises(CredentialsMissingError):
+                BinancePrivateExchange(cfg_live, client=mock_ccxt)
+
+        # Prova isolamento de secrets nos logs
+        joined_logs = "\n".join(log_ctx.output)
+        self.assertIn("Credential status: MISSING", joined_logs)
+        self.assertNotIn("simulated_mock_secret", joined_logs)
+        self.assertNotIn("api_secret", joined_logs)
 
     def test_secrets_never_appear_in_config_repr_or_str(self) -> None:
         """5. Chave e segredo da API NUNCA aparecem em repr(config) ou str(config)."""
