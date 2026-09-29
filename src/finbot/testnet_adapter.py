@@ -215,6 +215,12 @@ class BinanceSpotTestnetOrderAdapter:
         verify_testnet_endpoint(client)
         return client.load_markets()
 
+    def fetch_ticker(self, symbol: str) -> dict[str, Any]:
+        """Consulta o ticker atual do mercado na Spot Testnet."""
+        client = self._get_client()
+        verify_testnet_endpoint(client)
+        return client.fetch_ticker(symbol)
+
     def fetch_order(
         self, symbol: str, order_id: str | None, client_order_id: str | None
     ) -> ExchangeOrderResult | None:

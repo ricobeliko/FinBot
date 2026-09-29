@@ -320,4 +320,48 @@ READY_FOR_TESTNET_ORDER = YES / NO
 ```
 Zero ordens são enviadas durante o Pre-Flight (`TESTNET_ORDERS_SENT = 0`, `PRODUCTION_ORDERS_SENT = 0`).
 
+---
+
+## 16. Procedimento Operacional: Validação de Ordem Spot Testnet (FASE 8.4C2B)
+
+Comando operacional para validação e execução assistida da primeira ordem na Binance Spot Testnet oficial (`https://testnet.binance.vision`) utilizando capital fictício.
+
+### 16.1 Executar Dry Preview (100% Read-Only)
+Antes de qualquer submissão armada, execute o comando sem argumentos de confirmação para revisar os metadados, filtros e dimensionamento dinâmico da ordem:
+```powershell
+python -m finbot.testnet_order_validation
+# ou diretamente via executável:
+.\.venv\Scripts\python.exe -m finbot.testnet_order_validation
+```
+
+O comando opera de forma estritamente read-only:
+1. Conecta à Spot Testnet oficial via `BinanceSpotTestnetOrderAdapter` (modo desarmado).
+2. Carrega os filtros vigentes de `BTC/USDT` (`minQty`, `stepSize`, `minNotional`).
+3. Consulta o preço de mercado atual de `BTC/USDT` via `fetch_ticker`.
+4. Calcula dinamicamente a quantidade necessária para atingir ~6.00 USDT fictícios (respeitando minNotional e o micro-order cap de 15.0 USDT).
+5. Valida a intenção através de `RiskEngine`, `MarketFilterGuard` e `check_production_isolation`.
+6. Exibe a tela `TESTNET_ORDER_PREVIEW` com `TESTNET_WRITE_EXECUTED = NO` e aborta antes de qualquer escrita.
+
+### 16.2 Executar Ordem Armada na Spot Testnet
+Após conferência do preview pelo operador, a submissão real é realizada exigindo a flag inequívoca:
+```powershell
+python -m finbot.testnet_order_validation --confirm-testnet-order
+```
+*Atenção: Flags genéricas como `--yes`, `--force` ou `--live` são rejeitadas por segurança.*
+
+O ciclo de execução armada:
+1. **Sentries Pré-Escrita**: Valida ambiente (`SPOT_TESTNET`), armamento (`testnet_execution_enabled == True`), adapter de Testnet, URLs CCXT (`testnet.binance.vision`, proibição de `api.binance.com`) e target de credenciais (`FinBot/Binance/SpotTestnet`).
+2. **Emissão de Sinal de Armamento**: Exibe `TARGET_ENVIRONMENT = BINANCE_SPOT_TESTNET`, `PRODUCTION_TARGET = NO`, `TESTNET_WRITE_ARMED = YES`.
+3. **Pipeline Completo**: `OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter`.
+4. **Idempotência**: Registro prévio de `PENDING_SUBMISSION` com `clientOrderId` determinístico (`finbot_<hash>`).
+5. **Submissão**: Envio da ordem à API da Testnet.
+6. **Falha Ambígua**: Em caso de timeout de rede, a ordem é marcada como `UNKNOWN` e o auto-retry é terminantemente proibido.
+7. **Reconciliação**: Polling determinístico limitado consultando o estado na exchange via `fetch_order` por `clientOrderId`.
+8. **Relatório**: Exibe o relatório de execução sem dados confidenciais com `TESTNET_ORDERS_SENT = 1`, `PRODUCTION_ORDERS_SENT = 0` e `PRODUCTION_WRITE_ENABLED = NO`.
+
+### 16.3 Diretriz Institucional: Live Capital Gate
+**DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**
+A prontidão técnica do pipeline de execução não autoriza operações com capital real em Produção.
+Antes de qualquer migração para Produção com dinheiro real, será obrigatória a aprovação formal do **`LIVE_CAPITAL_GATE`**, baseado em evidência de estabilidade operacional e consistência estatística de desempenho.
+
 

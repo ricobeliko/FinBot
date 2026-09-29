@@ -256,6 +256,40 @@ class FakeExchangeOrderAdapter:
         key = client_order_id or order_id or ""
         return self.orders.get(key)
 
+    def fetch_ticker(self, symbol: str) -> dict[str, Any]:
+        """Retorna ticker simulado para testes sem rede."""
+        return {
+            "symbol": symbol,
+            "last": 60000.0,
+            "ask": 60000.0,
+            "bid": 60000.0,
+            "close": 60000.0,
+        }
+
+    def get_balances(self) -> dict[str, dict[str, Decimal]]:
+        """Retorna saldos simulados para testes sem rede."""
+        return {
+            "USDT": {"free": Decimal("10000.00"), "used": Decimal("0.00"), "total": Decimal("10000.00")},
+            "BTC": {"free": Decimal("0.00"), "used": Decimal("0.00"), "total": Decimal("0.00")},
+        }
+
+    def load_markets(self) -> dict[str, Any]:
+        """Retorna metadados simulados de BTC/USDT para testes sem rede."""
+        return {
+            "BTC/USDT": {
+                "symbol": "BTC/USDT",
+                "limits": {
+                    "amount": {"min": 0.00001, "max": 9000.0},
+                    "price": {"min": 0.01, "max": 1000000.0},
+                    "cost": {"min": 5.0, "max": None},
+                },
+                "precision": {
+                    "amount": 0.00001,
+                    "price": 0.01,
+                },
+            }
+        }
+
 
 class BinanceOrderAdapter:
     """Adapter para a Binance Private Exchange com barreira de segurança estrita da FASE 8.4B."""

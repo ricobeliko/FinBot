@@ -450,16 +450,29 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Zero ordens reais de produção enviadas (`PRODUCTION_ORDERS_SENT = 0`), zero ordens de testnet enviadas durante testes (`TESTNET_ORDERS_SENT = 0`)
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-##### FASE 8.4C2B — Spot Testnet Operational Validation (Pendente)
-- [ ] Cadastro das credenciais da Testnet no Windows Credential Manager via GUI ou CLI segura
-- [ ] Execução operacional do comando read-only: `python -m finbot.testnet_preflight`
-- [ ] Validação de autenticação, saldo fictício e metadados na Spot Testnet real
-- [ ] Obtenção do veredito `READY_FOR_TESTNET_ORDER = YES`
-- [ ] Submissão assistida de micro-ordem de teste na Spot Testnet
-- [ ] Validação de ciclo de vida (ACK, Fill, Reconciliação, Cancelamento) sem risco financeiro
+##### FASE 8.4C2B — Spot Testnet Operational Validation (Em Validação Operacional)
+- **Status**: EM VALIDAÇÃO OPERACIONAL (Pendente de execução e reconciliação da ordem real na TESTNET)
+- [x] Implementação do comando operacional controlado `python -m finbot.testnet_order_validation`
+- [x] Modo Dry Preview padrão (100% read-only) exibindo metadados, filtros, candidato (~6 USDT), Risk Engine e isolamento de produção com aborto fail-closed pré-escrita (`TESTNET_WRITE_EXECUTED = NO`)
+- [x] Armamento estrito condicionado à flag explícita `--confirm-testnet-order` e rejeição de flags genéricas (`--yes`, `--force`, `--live`)
+- [x] Sentries defensivos pré-escrita (ambiente SPOT_TESTNET, armamento ativo, adapter dedicado, endpoint testnet.binance.vision e nunca api.binance.com, target de credenciais SpotTestnet)
+- [x] Pipeline completo preservado sem atalhos (`OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`)
+- [x] Dimensionamento dinâmico de micro-ordem (~6 USDT) respeitando minNotional, stepSize, minQty e micro-order cap (15 USDT)
+- [x] Idempotência determinística (`clientOrderId` formato `finbot_<hash>`), persistência prévia de `PENDING_SUBMISSION`
+- [x] Tratamento de falha ambígua (timeout/rede -> `UNKNOWN`) sem retry automático de submissão
+- [x] Reconciliação determinística por polling limitado via `reconcile_order(client_order_id)`
+- [x] Auditoria local e higienização estrita de saída (zero chaves, segredos ou assinaturas expostos)
+- [x] Adição de 17 testes focados em `tests/test_testnet_order_validation.py` (totalizando 389 testes no projeto)
+- [ ] Execução operacional do comando de envio na Spot Testnet real com o operador
+- [ ] Confirmação de preenchimento (FILLED) e reconciliação de saldo fictício na Spot Testnet
 
-##### FASE 8.4C3 — Assisted Production Micro-Order Validation (Pendente)
-- Primeira micro-operação real controlada e assistida na Binance Spot com o operador:
+> **DIRETRIZ CONSTITUCIONAL DE CAPITAL REAL (`LIVE_CAPITAL_GATE`)**:
+> **DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**
+> A prontidão técnica do pipeline de execução não autoriza operações com capital real.
+> Antes de qualquer Production WRITE será obrigatória a aprovação em um futuro **`LIVE_CAPITAL_GATE`**, baseado em estabilidade operacional comprovada e evidência estatística de desempenho robusto.
+
+##### FASE 8.4C3 — Assisted Production Micro-Order Validation (Pendente de LIVE_CAPITAL_GATE)
+- Primeira micro-operação real controlada e assistida na Binance Spot com o operador (condicionada à aprovação formal do `LIVE_CAPITAL_GATE`):
   - Liberação assistida e supervisionada das travas de submissão no PC Forte exclusivamente para uma única micro-ordem
   - Validação do fluxo completo: Submissão -> ACK -> Fill -> Reconciliação de saldo real
   - Validação assistida do fluxo de cancelamento de micro-ordem limite longe do book

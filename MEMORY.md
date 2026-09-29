@@ -1,19 +1,21 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.4C2A — Integração Binance Spot Testnet e Isolamento de Produção concluída no Notebook.
+FASE 8.4C2A — Integração Binance Spot Testnet e Isolamento de Produção CONCLUÍDA.
+FASE 8.4C2B — Validação Operacional da Binance Spot Testnet EM VALIDAÇÃO OPERACIONAL.
 
-### Binance Spot Testnet Foundation (FASE 8.4C2A)
-- Módulo `src/finbot/testnet_adapter.py` implementado com o adapter dedicado `BinanceSpotTestnetOrderAdapter` para execução de ordens na Binance Spot Testnet oficial (`https://testnet.binance.vision`):
-  - *Separação Explícita de Ambientes*: Enum `BinanceEnvironment` com valores `PRODUCTION = "production"` e `SPOT_TESTNET = "spot_testnet"`. Production permanece default seguro inviolável.
-  - *Cofre de Credenciais Independente*: Provedor consome o target dedicado `FinBot/Binance/SpotTestnet` no Windows Credential Manager (`WindowsCredentialProvider.for_environment(env)`). Proibição categórica de compartilhamento, cópia ou fallback de credenciais entre ambientes.
-  - *Seleção Visual Clara na GUI e CLI*: `credentials_gui.py` e `credentials.py` adaptados com seletor explícito entre `BINANCE PRODUCTION` e `BINANCE SPOT TESTNET`, exibindo dinamicamente o target ativo e as permissões exigidas para prevenir erro humano.
-  - *Ativação CCXT Sandbox Imediata*: `exchange.set_sandbox_mode(True)` executado imediatamente após instanciação do cliente CCXT, antes de qualquer chamada à exchange.
-  - *Sentry Defensivo Fail-Closed Pré-Escrita*: Função `verify_testnet_endpoint` verifica antes de qualquer `submit_order` ou `cancel_order` que a URL CCXT contém `testnet.binance.vision` e JAMAIS contém `api.binance.com`. Qualquer inconsistência gera `TestnetSentryError` e aborta a operação.
-  - *Armamento Independente da Testnet*: Escritas exigem `binance_environment == SPOT_TESTNET` E `testnet_execution_enabled == True` (default `False`). Flags de produção não liberam testnet e flags de testnet não liberam produção.
-  - *Reutilização Integral do Pipeline de Segurança*: Pipeline existente preservado sem atalhos (`OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`). Micro-order cap (15 USDT), idempotência, clientOrderId determinístico, tratamento de timeout como UNKNOWN e reconciliação obrigatória permanecem ativos.
-  - *Comando Operacional Testnet Pre-Flight*: Módulo `src/finbot/testnet_preflight.py` (`python -m finbot.testnet_preflight`) para checagem pré-voo 100% read-only de credenciais, autenticação, saldos, metadados, filtros e barreiras, emitindo veredito `READY_FOR_TESTNET_ORDER = YES/NO`. Zero ordens enviadas ou canceladas.
-- 372 testes automatizados (360 passando e 12 skipped no `.venv` padrão; 372 passando sem skips no `.venv-research`; zero chamadas de rede). 22 novos testes dedicados em `tests/test_testnet.py`.
+### Spot Testnet Operational Validation (FASE 8.4C2B)
+- Módulo `src/finbot/testnet_order_validation.py` implementado com a ferramenta operacional controlada para validação e execução assistida da primeira ordem na Binance Spot Testnet (`https://testnet.binance.vision`) utilizando capital fictício (~6 USDT):
+  - *Modo Read-Only por Padrão (Dry Preview)*: Sem flag de confirmação, o comando executa exclusivamente pré-visualização completa: leitura de filtros de `BTC/USDT`, preço atual via `fetch_ticker`, dimensionamento dinâmico da candidata, validação no `RiskEngine`, `MarketFilterGuard` e comprovação de isolamento de produção. Emite `TESTNET_WRITE_EXECUTED = NO` e aborta fail-closed antes de qualquer escrita.
+  - *Armamento Explícito Inequívoco*: Escrita exige categoricamente `--confirm-testnet-order`. Flags genéricas (`--yes`, `--force`, `--live`) são rejeitadas preventivamente.
+  - *Sentries Defensivos Pré-Escrita*: `verify_testnet_write_sentries` re-valida ambiente `SPOT_TESTNET`, `testnet_execution_enabled == True`, adapter exclusivo de Testnet, endpoint CCXT com `testnet.binance.vision` e nunca `api.binance.com`, e target `FinBot/Binance/SpotTestnet`. Emite sinal mandatório: `TARGET_ENVIRONMENT = BINANCE_SPOT_TESTNET`, `PRODUCTION_TARGET = NO`, `TESTNET_WRITE_ARMED = YES`.
+  - *Pipeline Completo sem Atalhos*: `OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`.
+  - *Cálculo Dinâmico Próximo do Mínimo*: Quantidade calculada dinamicamente para ~6.00 USDT fictícios respeitando `minNotional`, `stepSize`, `minQty` e o teto `live_micro_order_max_notional` (15.0 USDT).
+  - *Idempotência e Falha Ambígua*: `clientOrderId` determinístico (`finbot_<hash>`), persistência prévia de `PENDING_SUBMISSION`. Timeouts resultam estritamente em `UNKNOWN` sem retry automático de submissão.
+  - *Reconciliação por Polling Limitado*: Consulta periódica limitada via `reconcile_order` por `clientOrderId`.
+  - *Higienização Absoluta de Saída*: Zero segredos, chaves de API, secrets ou assinaturas exibidos em relatórios ou logs.
+  - *Diretriz Institucional*: Formalização de que dinheiro real não será utilizado apenas porque o pipeline técnico está pronto; aprovação futura do `LIVE_CAPITAL_GATE` é constitucionalmente obrigatória antes de qualquer escrita em Produção.
+- 389 testes automatizados (377 passando e 12 skipped no `.venv` padrão; 389 passando 100% no `.venv-research`; zero chamadas de rede). 17 novos testes focados em `tests/test_testnet_order_validation.py`.
 - Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Pre-Flight Operational Command (FASE 8.4C1A)
@@ -269,12 +271,16 @@ not implemented
 - D033: Dry-Run Live Execution Engine (Fase 8.4A).
 - D034: Guarded Live Order Execution Foundation (Fase 8.4B).
 - D035: Comando Operacional de Pre-Flight e Validação Hermética de Prontidão (Fase 8.4C1A).
+- D036: Binance Spot Testnet Integration & Production Isolation (Fase 8.4C2A).
+- D037: Assisted Spot Testnet Order Validation & Institutional Live Capital Gate Policy (Fase 8.4C2B).
 
 ## Último checkpoint
-FASE 8.4C1A — Implementação e Testes do Comando Operacional de Pre-Flight: Módulo `src/finbot/preflight.py` implementado com o comando CLI `python -m finbot.preflight` para validação read-only de prontidão antes de micro-ordens reais e coberto por 14 novos testes unitários herméticos (totalizando 350 testes no projeto). O comando verifica estruturalmente a presença de credenciais no Windows Credential Manager (sem expor secrets), realiza checagem de status e saldo na Binance Spot (sem exibir quantias patrimoniais), obtém filtros e metadados de mercado do par BTC/USDT via CCXT público, valida as regras pelo MarketFilterGuard, calcula a micro-ordem candidata dentro do teto operacional (live_micro_order_max_notional = 15.0 USDT) com margem de segurança (~15%), atesta passivamente suficiência de fundos (FUNDS_AVAILABLE_FOR_CANDIDATE), executa simulação no pipeline defensivo completo em modo DRY_RUN (SIMULATED_ACCEPTED), e valida localmente a barreira final (real_order_submission_enabled == False) e o bloqueio de ordens (LiveTradingBlockedError). Critério formal READY_FOR_8_4C2 = YES condicionado à aprovação cumulativa de todas as 11 verificações. Teste sentinela test_preflight_cannot_submit_or_cancel_real_orders aprovado. Zero chamadas privadas reais à Binance no Notebook. Procedimento operacional documentado na Seção 14 do RUNBOOK.md. Paper Soak de 72h no PC Forte intocado.
+FASE 8.4C2B — Spot Testnet Operational Validation: Ferramenta operacional controlada `python -m finbot.testnet_order_validation` implementada e coberta por 17 testes focados unitários e defensivos (totalizando 389 testes no projeto, com 100% de sucesso em ambos os ambientes virtuais `.venv` e `.venv-research`). O entrypoint opera por padrão em modo Dry Preview (100% read-only), calculando dinamicamente quantidade e notional para ~6.00 USDT fictícios a partir do preço de mercado e filtros do par BTC/USDT na Spot Testnet, validando a intenção através de Risk Engine, MarketFilterGuard e isolamento estrito de produção (`TESTNET_WRITE_EXECUTED = NO`, `READY_TO_EXECUTE_TESTNET_ORDER = YES`). A submissão da ordem exige confirmação inequívoca `--confirm-testnet-order` (rejeitando `--yes`, `--force`, `--live`). Sentries pré-escrita validam ambiente, adapter, URLs e target de credenciais antes do envio. Pipeline completo preservado (`OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`). Idempotência garantida via clientOrderId determinístico (`finbot_<hash>`), persistência de PENDING_SUBMISSION, timeout tratado estritamente como UNKNOWN sem auto-retry e reconciliação determinística por polling limitado. Política constitucional do `LIVE_CAPITAL_GATE` formalizada (ADR D037). Zero ordens enviadas durante a implementação (`TESTNET_ORDERS_SENT = 0`, `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`). Paper Soak de 72h no PC Forte intocado.
 
 ## Próxima etapa (NEXT)
-FASE 8.4C1B — Execução Read-Only e Verificação de Barreiras no PC Forte: Realizar a execução oficial do comando `python -m finbot.preflight` no PC Forte com credenciais operacionais, validar autenticação ao vivo, saldos, filtros reais de mercado de BTC/USDT e obter o relatório com status `READY_FOR_8_4C2 = YES` antes de prosseguir para a emissão da micro-ordem assistida (Fase 8.4C2).
+FASE 8.4C2B — Execução Operacional do Preview e Ordem na Testnet:
+1. Executar o comando read-only: `python -m finbot.testnet_order_validation` para conferência prévia dos valores calculados na Testnet oficial.
+2. Após revisão do operador, executar a ordem assistida via `python -m finbot.testnet_order_validation --confirm-testnet-order` e verificar o preenchimento e a reconciliação.
 
 
 

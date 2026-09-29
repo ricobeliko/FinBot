@@ -810,9 +810,45 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - `FASE 8.4C1A`: Implementação e testes do comando de Pre-Flight (Concluída).
     - `FASE 8.4C1B`: Execução operacional do Pre-Flight Read-Only no PC Forte (Concluída).
     - `FASE 8.4C2A`: Spot Testnet Foundation e isolamento de produção (Concluída).
-    - `FASE 8.4C2B`: Spot Testnet Operational Validation (Pendente).
+    - `FASE 8.4C2B`: Spot Testnet Operational Validation (Em validação operacional).
     - `FASE 8.4C3`: Assisted Production Micro-Order Validation (Pendente).
 - **Motivo**: Permitir a validação ponta a ponta do pipeline real de ordens da Binance em ambiente oficial de sandbox com dinheiro fictício, eliminando qualquer risco de perda financeira e preservando a segurança de Produção.
+
+---
+
+### D037 — Assisted Spot Testnet Order Validation & Institutional Live Capital Gate Policy (Fase 8.4C2B)
+- **Status**: Aceito
+- **Data**: FASE 8.4C2B
+- **Contexto**: A conclusão da Fase 8.4C2A e a aprovação com 100% de sucesso do preflight oficial contra a Binance Spot Testnet (`READY_FOR_TESTNET_ORDER = YES`) habilitam o projeto a construir a ferramenta operacional para a primeira emissão de ordem assistida em ambiente sandbox com saldo fictício. Paralelamente, surge a necessidade de estabelecer uma diretriz constitucional institucional sobre a transição de sandbox/testnet para capital real em Produção.
+- **Decisão**:
+  - **Comando Operacional Controlado (`python -m finbot.testnet_order_validation`)**:
+    - **Modo Padrão (Read-Only / Preview)**: Quando invocado sem argumentos de confirmação, o comando opera estritamente em modo de visualização prévia (Dry Preview). Realiza a leitura de mercado, obtém filtros e preço de referência, calcula a ordem candidata (~6 USDT), verifica passivamente o Risk Engine, valida filtros via MarketFilterGuard e atesta isolamento de produção. Emite `TESTNET_WRITE_EXECUTED = NO` e `READY_TO_EXECUTE_TESTNET_ORDER = YES`, abortando antes de qualquer operação de escrita.
+    - **Armamento Explícito e Inequívoco**: A submissão da ordem de teste exige a flag explícita `--confirm-testnet-order`. Flags genéricas (`--yes`, `--force`, `--live`) NÃO autorizam escrita e são terminantemente rejeitadas.
+  - **Sentries Defensivos Pré-Escrita (Fail-Closed)**:
+    - Imediatamente antes de submeter a ordem, o sentry re-valida:
+      1. `BinanceEnvironment == SPOT_TESTNET`
+      2. `testnet_execution_enabled == True`
+      3. `adapter == BinanceSpotTestnetOrderAdapter` (ou fake em testes)
+      4. `endpoint` contém `testnet.binance.vision` e JAMAIS `api.binance.com`
+      5. `target` de credenciais é estritamente `FinBot/Binance/SpotTestnet` (rejeitando sumariamente `FinBot/Binance/Production`)
+    - Qualquer divergência aborta a operação imediatamente com `TestnetSentryError`.
+    - Emissão da confirmação final: `TARGET_ENVIRONMENT = BINANCE_SPOT_TESTNET`, `PRODUCTION_TARGET = NO`, `TESTNET_WRITE_ARMED = YES`.
+  - **Preservação Integral do Pipeline de Segurança**:
+    - A ordem percorre estritamente: `OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Spot Testnet`.
+    - Sem atalhos ou desvios de esteira.
+  - **Cálculo Dinâmico de Ordem Candidata**:
+    - Símbolo `BTC/USDT`, lado `BUY`, tipo `MARKET`.
+    - Notional calculado dinamicamente em ~6.00 USDT fictícios (com margem sobre `minNotional` e estritamente abaixo do `micro_order_cap` de 15.0 USDT). Quantidade arredondada para passo exato (`stepSize`) e validada contra `minQty`.
+  - **Idempotência, Falha Ambígua e Reconciliação**:
+    - `clientOrderId` determinístico no formato `finbot_<hash>`, persistência prévia de `PENDING_SUBMISSION`.
+    - Falhas de rede ou timeouts resultam estritamente no estado `UNKNOWN` sem retry automático de submissão.
+    - Reconciliação mandatória via polling limitado por `clientOrderId`.
+  - **Política Constitucional Institucional de Capital Real (`LIVE_CAPITAL_GATE`)**:
+    - **DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**
+    - A prontidão técnica do pipeline de execução não confere nem implica autorização de uso de capital real.
+    - Antes de qualquer escrita em ambiente de Produção (`PRODUCTION`), será obrigatória a aprovação em um futuro gate formal de governança: o `LIVE_CAPITAL_GATE`.
+    - O `LIVE_CAPITAL_GATE` será condicionado à estabilidade operacional comprovada em execução autônoma contínua, consistência em ambiente simulado e evidência estatística de desempenho robusto sem anomalias.
+- **Motivo**: Garantir segurança máxima e governança institucional blindada na execução de ordens na Testnet e vedar terminantemente o uso precipitado de fundos reais.
 
 
 
