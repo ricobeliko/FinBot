@@ -1,10 +1,18 @@
 """Configuração operacional do FinBot."""
 
 from dataclasses import dataclass, field
+from enum import Enum
 import os
 
 VALID_TRADING_MODES = {"paper", "live"}
 DEFAULT_TRADING_MODE = "paper"
+
+
+class BinanceEnvironment(str, Enum):
+    """Ambiente da API da Binance com separação estrita de execução."""
+
+    PRODUCTION = "production"
+    SPOT_TESTNET = "spot_testnet"
 
 
 @dataclass(frozen=True)
@@ -16,6 +24,8 @@ class Config:
     trading_mode: str = "paper"
     log_level: str = "INFO"
     exchange_id: str = "binance"
+    binance_environment: BinanceEnvironment = BinanceEnvironment.PRODUCTION
+    testnet_execution_enabled: bool = False
     symbol: str = "BTC/USDT"
     timeframe: str = "1m"
     candle_limit: int = 20
@@ -49,12 +59,21 @@ class Config:
     binance_api_secret: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
-        """Sanitiza trading_mode garantindo que apenas valores suportados sejam aceitos."""
+        """Sanitiza trading_mode e binance_environment garantindo valores suportados."""
         mode = (self.trading_mode or "").strip().lower()
         if mode not in VALID_TRADING_MODES:
             object.__setattr__(self, "trading_mode", DEFAULT_TRADING_MODE)
         else:
             object.__setattr__(self, "trading_mode", mode)
+
+        if isinstance(self.binance_environment, str):
+            clean_env = self.binance_environment.strip().lower()
+            if clean_env in ("spot_testnet", "testnet"):
+                object.__setattr__(self, "binance_environment", BinanceEnvironment.SPOT_TESTNET)
+            else:
+                object.__setattr__(self, "binance_environment", BinanceEnvironment.PRODUCTION)
+        elif not isinstance(self.binance_environment, BinanceEnvironment):
+            object.__setattr__(self, "binance_environment", BinanceEnvironment.PRODUCTION)
 
 
 def get_config() -> Config:
@@ -89,8 +108,19 @@ def get_config() -> Config:
     raw_real = os.getenv("REAL_ORDER_SUBMISSION_ENABLED", "false").strip().lower()
     real_order_submission_enabled = raw_real in ("1", "true", "yes")
 
+    raw_env = os.getenv("BINANCE_ENVIRONMENT", "production").strip().lower()
+    if raw_env in ("spot_testnet", "testnet"):
+        binance_env = BinanceEnvironment.SPOT_TESTNET
+    else:
+        binance_env = BinanceEnvironment.PRODUCTION
+
+    raw_testnet_exec = os.getenv("TESTNET_EXECUTION_ENABLED", "false").strip().lower()
+    testnet_execution_enabled = raw_testnet_exec in ("1", "true", "yes")
+
     return Config(
         trading_mode=trading_mode,
+        binance_environment=binance_env,
+        testnet_execution_enabled=testnet_execution_enabled,
         live_trading_acknowledged=live_trading_acknowledged,
         live_max_order_notional=live_max_order_notional,
         live_execution_enabled=live_execution_enabled,

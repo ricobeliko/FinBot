@@ -146,16 +146,40 @@ if IS_WINDOWS:
     _advapi32.CredFree.restype = None
 
 
+TARGET_NAME_PRODUCTION: str = "FinBot/Binance/Production"
+TARGET_NAME_SPOT_TESTNET: str = "FinBot/Binance/SpotTestnet"
+
+
+def get_credential_target(env: Any = None) -> str:
+    """Retorna o target no Windows Credential Manager correspondente ao ambiente.
+
+    Garante isolamento absoluto entre chaves de produção e testnet.
+    """
+    if env is None:
+        return TARGET_NAME_PRODUCTION
+    env_str = getattr(env, "value", str(env)).strip().lower()
+    if env_str in ("spot_testnet", "testnet"):
+        return TARGET_NAME_SPOT_TESTNET
+    return TARGET_NAME_PRODUCTION
+
+
 class WindowsCredentialProvider(CredentialProvider):
     """Provedor de credenciais nativo baseado no Windows Credential Manager.
 
     Armazena e recupera credenciais usando a API Crypto / CredReadW da Advapi32.
     """
 
-    DEFAULT_TARGET_NAME: str = "FinBot/Binance/Production"
+    TARGET_NAME_PRODUCTION: str = TARGET_NAME_PRODUCTION
+    TARGET_NAME_SPOT_TESTNET: str = TARGET_NAME_SPOT_TESTNET
+    DEFAULT_TARGET_NAME: str = TARGET_NAME_PRODUCTION
 
     def __init__(self, target_name: str = DEFAULT_TARGET_NAME) -> None:
         self.target_name = target_name
+
+    @classmethod
+    def for_environment(cls, env: Any = None) -> WindowsCredentialProvider:
+        """Cria uma instância apontando para o target seguro do ambiente especificado."""
+        return cls(target_name=get_credential_target(env))
 
     def get_provider_name(self) -> str:
         return "Windows Credential Manager"
@@ -404,13 +428,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Ação a ser executada: setup (cadastrar CLI), status (verificar), remove (remover), gui (interface gráfica)",
     )
     parser.add_argument(
+        "--env",
+        choices=["production", "spot_testnet"],
+        default=None,
+        help="Ambiente Binance (production ou spot_testnet). Define o target default correspondente.",
+    )
+    parser.add_argument(
         "--target",
-        default=WindowsCredentialProvider.DEFAULT_TARGET_NAME,
-        help="Nome do target no Windows Credential Manager (default: FinBot/Binance/Production)",
+        default=None,
+        help="Nome explícito do target no Windows Credential Manager",
     )
 
     args = parser.parse_args(argv)
-    provider = WindowsCredentialProvider(target_name=args.target)
+    target = args.target if args.target is not None else get_credential_target(args.env)
+    provider = WindowsCredentialProvider(target_name=target)
 
     if args.action == "setup":
         return cli_setup(provider)
@@ -420,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
         return cli_remove(provider)
     elif args.action == "gui":
         from finbot.credentials_gui import run_gui
-        return run_gui(provider=provider)
+        return run_gui(provider=provider, initial_env=args.env)
     return 0
 
 

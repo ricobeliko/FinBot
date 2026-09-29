@@ -771,6 +771,50 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
     - Prontidão para a Fase 8.4C2 condicionada ao sucesso simultâneo de 11 verificações: credenciais presentes, autenticação privada válida, saldos lidos com sucesso, metadados obtidos, filtros válidos, candidata calculável, fundos suficientes, simulação dry-run aceita, barreira final ativa (`real_order_submission_enabled == False`), barreira de create_order ativa e barreira de cancel_order ativa.
 - **Motivo**: Prover um gate de segurança operacional infalível e reproduzível que garanta conformidade técnica total antes de qualquer operação financeira real assistida.
 
+---
+
+### D036 — Binance Spot Testnet Integration & Production Isolation (Fase 8.4C2A)
+- **Status**: Aceito
+- **Data**: FASE 8.4C2A
+- **Contexto**: A validação do pipeline de ordens reais da Binance Spot antes de qualquer micro-operação com dinheiro real exige um ambiente de testes realista, que emita ordens de teste na infraestrutura oficial da exchange sem comprometer recursos patrimoniais. Essa integração deve manter isolamento absoluto em relação ao ambiente de produção (`api.binance.com`), garantindo que Produção continue read-only, com trading desabilitado e blindada contra erros de configuração ou humanos.
+- **Decisão**:
+  - **Conceito Explícito de Ambiente (`BinanceEnvironment`)**:
+    - Criação do enum `BinanceEnvironment` com valores `PRODUCTION = "production"` e `SPOT_TESTNET = "spot_testnet"`.
+    - Proibição de booleanos ambíguos (ex.: `test=True`). `BinanceEnvironment.PRODUCTION` permanece como default seguro inviolável.
+  - **Isolamento de Credenciais no Windows Credential Manager**:
+    - Target de Produção: `FinBot/Binance/Production` (permanece estritamente read-only).
+    - Target de Testnet: `FinBot/Binance/SpotTestnet` (armazenamento independente para chaves geradas em `testnet.binance.vision`).
+    - Nenhuma credencial de produção pode ser reaproveitada na Testnet e nenhuma credencial de testnet pode ser usada em produção.
+    - Provedor nativo parametrizado via `WindowsCredentialProvider.for_environment(env)`.
+  - **GUI e CLI Seguras com Seleção Visual Clara**:
+    - `credentials_gui.py` e `credentials.py` adaptados com seletor explícito de ambiente (`BINANCE PRODUCTION` vs `BINANCE SPOT TESTNET`), exibindo em tempo real o target ativo e suas permissões para evitar qualquer erro de digitação ou seleção por parte do operador.
+  - **Adapter Dedicado Spot Testnet (`BinanceSpotTestnetOrderAdapter`)**:
+    - Implementação de adapter conforme o protocolo `ExchangeOrderAdapter`.
+    - Ativação obrigatória de sandbox no CCXT via `exchange.set_sandbox_mode(True)` imediatamente após a instanciação, antes de qualquer requisição à rede.
+    - Suporte a leitura de saldos (`get_balances`), metadados (`load_markets`), submissão (`submit_order`), consulta determinística (`fetch_order`) e cancelamento (`cancel_order`).
+  - **Sentry Defensivo Pré-Escrita**:
+    - Função `verify_testnet_endpoint` executada antes de qualquer operação de escrita (`submit_order`, `cancel_order`).
+    - Verifica que a URL do CCXT contém `testnet.binance.vision` e que NUNCA contém `api.binance.com`. Se houver qualquer divergência, a operação é sumariamente abortada com `TestnetSentryError` (fail-closed).
+    - `BinanceOrderAdapter` de produção continua com sua barreira incondicional ativa (`RealOrderSubmissionBlockedError`).
+  - **Armamento Independente da Testnet**:
+    - Execução na Testnet exige `binance_environment == SPOT_TESTNET` e `testnet_execution_enabled == True`.
+    - Flags de produção (`live_execution_enabled`, `live_trading_acknowledged`) NÃO liberam a Testnet.
+    - Flags de testnet (`testnet_execution_enabled`) NÃO liberam Produção.
+  - **Reutilização Integral do Pipeline de Segurança**:
+    - O fluxo permanece idêntico: `OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`.
+    - Preservados: micro-order cap (15 USDT), idempotência determinística, `clientOrderId` determinístico, tratamento de falha ambígua (TIMEOUT -> `UNKNOWN`), proibição de auto-retry cego e reconciliação mandatória.
+  - **Comando Operacional Testnet Pre-Flight (`python -m finbot.testnet_preflight`)**:
+    - Entrypoint para conferência 100% read-only de credenciais de Testnet, autenticação, saldos, filtros, integridade de barreiras e isolamento de produção, finalizando com o veredito `READY_FOR_TESTNET_ORDER = YES/NO`.
+    - Zero ordens enviadas ou canceladas durante a execução do comando.
+  - **Reorganização de Marcos do Roadmap**:
+    - `FASE 8.4C1A`: Implementação e testes do comando de Pre-Flight (Concluída).
+    - `FASE 8.4C1B`: Execução operacional do Pre-Flight Read-Only no PC Forte (Concluída).
+    - `FASE 8.4C2A`: Spot Testnet Foundation e isolamento de produção (Concluída).
+    - `FASE 8.4C2B`: Spot Testnet Operational Validation (Pendente).
+    - `FASE 8.4C3`: Assisted Production Micro-Order Validation (Pendente).
+- **Motivo**: Permitir a validação ponta a ponta do pipeline real de ordens da Binance em ambiente oficial de sandbox com dinheiro fictício, eliminando qualquer risco de perda financeira e preservando a segurança de Produção.
+
+
 
 
 

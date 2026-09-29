@@ -427,15 +427,39 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Procedimento operacional documentado na Seção 14 de `RUNBOOK.md`
 - [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
 
-##### FASE 8.4C1B — Execução Read-Only e Verificação de Barreiras no PC Forte (Pendente)
-- Execução do comando `python -m finbot.preflight` no ambiente de produção (PC Forte) com credenciais oficiais
-- Validação ao vivo da autenticação e consulta de saldos (read-only)
-- Confirmação dos filtros reais atuais de mercado de `BTC/USDT`
-- Cálculo e exibição da micro-ordem candidata em tempo real
-- Obtenção do resultado mandatório `READY_FOR_8_4C2 = YES`
+##### FASE 8.4C1B — Execução Read-Only e Verificação de Barreiras no PC Forte (Concluída)
+- **Status**: CONCLUÍDA
+- [x] Execução do comando `python -m finbot.preflight` no ambiente de produção (PC Forte) com credenciais oficiais
+- [x] Validação ao vivo da autenticação e consulta de saldos (read-only)
+- [x] Confirmação dos filtros reais atuais de mercado de `BTC/USDT`
+- [x] Cálculo e exibição da micro-ordem candidata em tempo real
+- [x] Obtenção do resultado mandatório `READY_FOR_8_4C2 = YES`
+- [x] Inviolabilidade operacional confirmada: zero ordens reais enviadas
 
-##### FASE 8.4C2 — Assisted Binance Micro-Order Validation (Pendente)
-- Esta fase executará a primeira micro-operação real controlada e assistida na Binance Spot com o operador:
+##### FASE 8.4C2A — Spot Testnet Foundation & Production Isolation (Concluída no Notebook)
+- **Status**: CONCLUÍDA
+- [x] Separação explícita de ambientes via `BinanceEnvironment` (`PRODUCTION` vs `SPOT_TESTNET`)
+- [x] Armazenamento independente de credenciais no Windows Credential Manager: target `FinBot/Binance/SpotTestnet` vs `FinBot/Binance/Production`
+- [x] Adaptação de CLI (`credentials.py`) e GUI (`credentials_gui.py`) com alternância explícita e visual de ambiente
+- [x] Implementação de `BinanceSpotTestnetOrderAdapter` para `https://testnet.binance.vision` com ativação imediata de CCXT sandbox mode (`set_sandbox_mode(True)`)
+- [x] Sentry defensivo fail-closed: verificação obrigatória de que endpoint contém `testnet.binance.vision` e jamais `api.binance.com` antes de qualquer WRITE
+- [x] Armamento independente da Testnet: `testnet_execution_enabled == True` (default `False`); flags de produção não liberam testnet e flags de testnet não liberam produção
+- [x] Reutilização integral do pipeline de segurança (`Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter`)
+- [x] Implementação do comando operacional read-only `python -m finbot.testnet_preflight` emitindo veredito `READY_FOR_TESTNET_ORDER = YES/NO`
+- [x] Adição de 22 testes unitários e de isolamento em `tests/test_testnet.py` (totalizando 372 testes no projeto)
+- [x] Zero ordens reais de produção enviadas (`PRODUCTION_ORDERS_SENT = 0`), zero ordens de testnet enviadas durante testes (`TESTNET_ORDERS_SENT = 0`)
+- [x] Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte
+
+##### FASE 8.4C2B — Spot Testnet Operational Validation (Pendente)
+- [ ] Cadastro das credenciais da Testnet no Windows Credential Manager via GUI ou CLI segura
+- [ ] Execução operacional do comando read-only: `python -m finbot.testnet_preflight`
+- [ ] Validação de autenticação, saldo fictício e metadados na Spot Testnet real
+- [ ] Obtenção do veredito `READY_FOR_TESTNET_ORDER = YES`
+- [ ] Submissão assistida de micro-ordem de teste na Spot Testnet
+- [ ] Validação de ciclo de vida (ACK, Fill, Reconciliação, Cancelamento) sem risco financeiro
+
+##### FASE 8.4C3 — Assisted Production Micro-Order Validation (Pendente)
+- Primeira micro-operação real controlada e assistida na Binance Spot com o operador:
   - Liberação assistida e supervisionada das travas de submissão no PC Forte exclusivamente para uma única micro-ordem
   - Validação do fluxo completo: Submissão -> ACK -> Fill -> Reconciliação de saldo real
   - Validação assistida do fluxo de cancelamento de micro-ordem limite longe do book

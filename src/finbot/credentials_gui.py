@@ -27,7 +27,10 @@ from finbot.credentials import (
     BinanceCredentials,
     CredentialProvider,
     CredentialsError,
+    TARGET_NAME_PRODUCTION,
+    TARGET_NAME_SPOT_TESTNET,
     WindowsCredentialProvider,
+    get_credential_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,20 +114,28 @@ class CredentialsApp:
         root: tk.Tk | tk.Toplevel,
         provider: CredentialProvider | None = None,
         auto_close_on_success: bool = True,
+        initial_env: str | None = None,
     ) -> None:
         self.root = root
         self.provider = provider or WindowsCredentialProvider()
-        self.auto_close_on_success = auto_close_on_success
-
         self.root.title("FinBot — Binance Credentials")
         self.root.resizable(False, False)
+        self.auto_close_on_success = auto_close_on_success
 
-        # Variáveis de controle
+        current_target = getattr(self.provider, "target_name", "")
+        if initial_env in ("spot_testnet", "testnet") or current_target == TARGET_NAME_SPOT_TESTNET:
+            init_env_val = "spot_testnet"
+        else:
+            init_env_val = "production"
+
+        self.env_var = tk.StringVar(value=init_env_val)
         self.show_secret_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="")
+        self.target_display_var = tk.StringVar(value="")
 
+        self._update_target_state()
         self._build_ui()
-        self._center_window(520, 360)
+        self._center_window(540, 440)
 
     def _center_window(self, width: int, height: int) -> None:
         """Centraliza a janela na tela do operador."""
@@ -138,6 +149,32 @@ class CredentialsApp:
         except Exception:
             self.root.geometry(f"{width}x{height}")
 
+    def _update_target_state(self) -> None:
+        """Atualiza o target do provedor e a mensagem descritiva de acordo com o ambiente selecionado."""
+        env_selected = self.env_var.get()
+        if env_selected == "spot_testnet":
+            target = TARGET_NAME_SPOT_TESTNET
+            env_desc = "BINANCE SPOT TESTNET (Sandbox)"
+            perm_desc = "Permissões: Spot Trading Testnet (Chaves exclusivas do testnet.binance.vision)"
+        else:
+            target = TARGET_NAME_PRODUCTION
+            env_desc = "BINANCE PRODUCTION"
+            perm_desc = "Permissões: Apenas Leitura (HMAC Read-Only — Ordens bloqueadas)"
+
+        if hasattr(self.provider, "target_name"):
+            self.provider.target_name = target
+
+        store_name = self.provider.get_provider_name()
+        self.target_display_var.set(
+            f"Ambiente ativo: {env_desc}\n"
+            f"Armazenamento: {store_name} (Target: {target})\n"
+            f"{perm_desc}"
+        )
+
+    def _on_env_changed(self) -> None:
+        """Chamado quando o operador alterna o ambiente na interface."""
+        self._update_target_state()
+
     def _build_ui(self) -> None:
         """Constrói os componentes da interface visual."""
         padding = 16
@@ -148,31 +185,49 @@ class CredentialsApp:
         # Cabeçalho informativo
         title_label = ttk.Label(
             container,
-            text="FinBot — Binance Credentials",
+            text="FinBot — Cadastro de Credenciais Binance",
             font=("Segoe UI", 12, "bold"),
         )
-        title_label.pack(anchor=tk.W, pady=(0, 2))
+        title_label.pack(anchor=tk.W, pady=(0, 4))
 
-        target_name = getattr(self.provider, "target_name", self.provider.get_provider_name())
+        # Seletor explícito de Ambiente: Production vs Spot Testnet
+        env_frame = ttk.LabelFrame(container, text=" Selecionar Ambiente ", padding=8)
+        env_frame.pack(fill=tk.X, pady=(0, 8))
+
+        rb_prod = ttk.Radiobutton(
+            env_frame,
+            text="BINANCE PRODUCTION (Produção Read-Only)",
+            value="production",
+            variable=self.env_var,
+            command=self._on_env_changed,
+        )
+        rb_prod.pack(anchor=tk.W, pady=(1, 3))
+
+        rb_testnet = ttk.Radiobutton(
+            env_frame,
+            text="BINANCE SPOT TESTNET (Ambiente de Testes / Sandbox)",
+            value="spot_testnet",
+            variable=self.env_var,
+            command=self._on_env_changed,
+        )
+        rb_testnet.pack(anchor=tk.W, pady=(1, 1))
+
         subtitle_label = ttk.Label(
             container,
-            text=(
-                f"Armazenamento: {self.provider.get_provider_name()} (Target: {target_name})\n"
-                "Permissões necessárias: Apenas Leitura (HMAC Read-Only)"
-            ),
-            font=("Segoe UI", 9),
-            foreground="#555555",
+            textvariable=self.target_display_var,
+            font=("Segoe UI", 8),
+            foreground="#444444",
         )
-        subtitle_label.pack(anchor=tk.W, pady=(0, 10))
+        subtitle_label.pack(anchor=tk.W, pady=(0, 8))
 
-        ttk.Separator(container, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 12))
+        ttk.Separator(container, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=(0, 10))
 
         # Campo: API Key
         key_label = ttk.Label(container, text="API Key:", font=("Segoe UI", 9, "bold"))
         key_label.pack(anchor=tk.W, pady=(0, 2))
 
         self.entry_key = ttk.Entry(container, width=54)
-        self.entry_key.pack(fill=tk.X, pady=(0, 10))
+        self.entry_key.pack(fill=tk.X, pady=(0, 8))
         self.entry_key.focus_set()
 
         # Campo: API Secret (mascarado com asteriscos por padrão)
@@ -189,7 +244,7 @@ class CredentialsApp:
             variable=self.show_secret_var,
             command=self._on_toggle_show_secret,
         )
-        self.check_show_secret.pack(anchor=tk.W, pady=(0, 10))
+        self.check_show_secret.pack(anchor=tk.W, pady=(0, 8))
 
         # Label para mensagens de status e validação
         self.label_status = ttk.Label(
@@ -198,11 +253,11 @@ class CredentialsApp:
             font=("Segoe UI", 9),
             wraplength=480,
         )
-        self.label_status.pack(anchor=tk.W, pady=(0, 10))
+        self.label_status.pack(anchor=tk.W, pady=(0, 6))
 
         # Barra de botões inferior
         btn_frame = ttk.Frame(container)
-        btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
 
         self.btn_cancel = ttk.Button(btn_frame, text="Cancelar", command=self.on_cancel)
         self.btn_cancel.pack(side=tk.RIGHT, padx=(6, 0))
@@ -258,11 +313,15 @@ class CredentialsApp:
 def run_gui(
     provider: CredentialProvider | None = None,
     auto_close_on_success: bool = True,
+    initial_env: str | None = None,
 ) -> int:
     """Inicializa e executa a interface gráfica local."""
     root = tk.Tk()
     app = CredentialsApp(
-        root, provider=provider, auto_close_on_success=auto_close_on_success
+        root,
+        provider=provider,
+        auto_close_on_success=auto_close_on_success,
+        initial_env=initial_env,
     )
     root.mainloop()
     return 0
@@ -275,13 +334,21 @@ def main(argv: list[str] | None = None) -> int:
         description="Interface gráfica local segura para cadastro de credenciais da Binance.",
     )
     parser.add_argument(
+        "--env",
+        choices=["production", "spot_testnet"],
+        default=None,
+        help="Ambiente Binance (production ou spot_testnet).",
+    )
+    parser.add_argument(
         "--target",
-        default=WindowsCredentialProvider.DEFAULT_TARGET_NAME,
-        help="Nome do target no Windows Credential Manager (default: FinBot/Binance/Production)",
+        default=None,
+        help="Nome explícito do target no Windows Credential Manager",
     )
     args = parser.parse_args(argv)
-    provider = WindowsCredentialProvider(target_name=args.target)
-    return run_gui(provider=provider)
+    target = args.target if args.target is not None else get_credential_target(args.env)
+    provider = WindowsCredentialProvider(target_name=target)
+    return run_gui(provider=provider, initial_env=args.env)
+
 
 
 if __name__ == "__main__":

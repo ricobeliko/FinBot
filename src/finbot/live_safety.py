@@ -34,7 +34,7 @@ import sqlite3
 from typing import Any, Generator
 import uuid
 
-from finbot.config import Config
+from finbot.config import BinanceEnvironment, Config
 from finbot.risk import RiskDecision
 
 logger = logging.getLogger(__name__)
@@ -540,25 +540,36 @@ class LiveSafetyGate:
                 )
             checks["risk_engine"] = "PASSED"
 
-            # 3. Verificação de Modo Live e Acknowledgement Explícito
-            if config.trading_mode != "live":
-                return self._reject(
-                    intent,
-                    "NOT_IN_LIVE_MODE",
-                    f"Modo de trading configurado é '{config.trading_mode}'. LiveSafetyGate requer modo 'live'.",
-                    checks,
-                    now_iso,
-                )
+            # 3. Verificação de Ambiente, Modo Live e Autorização Explícita
+            if config.binance_environment == BinanceEnvironment.SPOT_TESTNET:
+                if not config.testnet_execution_enabled:
+                    return self._reject(
+                        intent,
+                        "TESTNET_NOT_ENABLED",
+                        "Execução em Binance Spot Testnet não autorizada (testnet_execution_enabled=False).",
+                        checks,
+                        now_iso,
+                    )
+                checks["acknowledgement"] = "PASSED"
+            else:
+                if config.trading_mode != "live":
+                    return self._reject(
+                        intent,
+                        "NOT_IN_LIVE_MODE",
+                        f"Modo de trading configurado é '{config.trading_mode}'. LiveSafetyGate requer modo 'live'.",
+                        checks,
+                        now_iso,
+                    )
 
-            if not config.live_trading_acknowledged:
-                return self._reject(
-                    intent,
-                    "LIVE_NOT_ACKNOWLEDGED",
-                    "Operação live não autorizada explicitamente pelo operador (live_trading_acknowledged=False).",
-                    checks,
-                    now_iso,
-                )
-            checks["acknowledgement"] = "PASSED"
+                if not config.live_trading_acknowledged:
+                    return self._reject(
+                        intent,
+                        "LIVE_NOT_ACKNOWLEDGED",
+                        "Operação live não autorizada explicitamente pelo operador (live_trading_acknowledged=False).",
+                        checks,
+                        now_iso,
+                    )
+                checks["acknowledgement"] = "PASSED"
 
             # 4. Verificação de Hard Live Limit (Teto Financeiro Estrito)
             hard_limit = Decimal(str(config.live_max_order_notional))

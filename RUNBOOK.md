@@ -259,9 +259,65 @@ python -m finbot.preflight
 10. **Barreiras de Ordens**: Confirmação estrutural de que `create_order` e `cancel_order` levantam `LiveTradingBlockedError`.
 
 ### 14.3 Critério Mandatório de Prontidão
-A execução futura da **FASE 8.4C2** (micro-ordem assistida com o operador) só é autorizada se o relatório final emitir:
+A execução futura da **FASE 8.4C3** (micro-ordem assistida de produção com o operador) só é autorizada se o relatório final emitir:
 ```text
 READY_FOR_8_4C2 = YES
 ```
 Se qualquer checagem falhar ou emitir `NO`, o sistema permanece categoricamente bloqueado.
+
+---
+
+## 15. Procedimento Operacional: Binance Spot Testnet (FASE 8.4C2)
+
+Ambiente oficial de testes (Sandbox) da Binance Spot (`https://testnet.binance.vision`) para validação prática do pipeline de execução real de ordens sem risco financeiro.
+
+### 15.1 Cadastrar Credenciais da Testnet (Windows Credential Manager)
+Obtenha as chaves HMAC gratuitas na Binance Spot Testnet oficial (`https://testnet.binance.vision`) via login GitHub.
+
+Cadastrar via GUI segura:
+```powershell
+python -m finbot.credentials_gui --env spot_testnet
+```
+- Selecione a opção **BINANCE SPOT TESTNET** na interface gráfica.
+- O target exibido será `FinBot/Binance/SpotTestnet`.
+- Cole a API Key e o API Secret nos respectivos campos e salve.
+
+Ou cadastrar via CLI oculta:
+```powershell
+python -m finbot.credentials setup --env spot_testnet
+```
+
+### 15.2 Verificar Status das Credenciais da Testnet
+```powershell
+python -m finbot.credentials status --env spot_testnet
+```
+- Deve reportar:
+  - `Credential store: Windows Credential Manager`
+  - `Target: FinBot/Binance/SpotTestnet`
+  - `Binance credentials: PRESENT`
+
+### 15.3 Executar Testnet Pre-Flight (100% Read-Only)
+Com o ambiente ativado:
+```powershell
+python -m finbot.testnet_preflight
+# ou diretamente via executável:
+.\.venv\Scripts\python.exe -m finbot.testnet_preflight
+```
+O comando valida de forma estritamente read-only:
+1. `CREDENTIAL_STORE`: Windows Credential Manager.
+2. `TESTNET_CREDENTIALS`: Presença no target `FinBot/Binance/SpotTestnet`.
+3. `TESTNET_AUTH`: Conectividade e autenticação HMAC em `testnet.binance.vision`.
+4. `TESTNET_BALANCE_READ`: Leitura segura de saldos fictícios (sem expor quantias).
+5. `TESTNET_MARKET_METADATA`: Consulta pública de filtros de `BTC/USDT` na Testnet.
+6. `RISK_ENGINE`: Avaliação pelo motor soberano de risco.
+7. `MARKET_FILTER_GUARD`: Sanitização e limites de mercado da Testnet.
+8. `EXECUTION_BARRIER`: Confirmação de que `testnet_execution_enabled == False` bloqueia escritas.
+9. `PRODUCTION_ISOLATION`: Comprovação de que Produção (`api.binance.com`, target `FinBot/Binance/Production`, ordens e transferências) permanece 100% isolada, intocada e bloqueada.
+
+Veredito emitido:
+```text
+READY_FOR_TESTNET_ORDER = YES / NO
+```
+Zero ordens são enviadas durante o Pre-Flight (`TESTNET_ORDERS_SENT = 0`, `PRODUCTION_ORDERS_SENT = 0`).
+
 

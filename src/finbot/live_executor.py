@@ -24,7 +24,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Protocol
 
-from finbot.config import Config
+from finbot.config import BinanceEnvironment, Config
 from finbot.execution import (
     InvalidExecutionIntentError,
     build_order_payload,
@@ -142,11 +142,13 @@ class FakeExchangeOrderAdapter:
         simulate_timeout: bool = False,
         simulate_reject: bool = False,
         reject_reason: str = "Fake exchange rejection",
+        environment: BinanceEnvironment | None = None,
     ) -> None:
         self.default_status = default_status
         self.simulate_timeout = simulate_timeout
         self.simulate_reject = simulate_reject
         self.reject_reason = reject_reason
+        self.environment = environment
         self.submitted_payloads: list[dict[str, Any]] = []
         self.canceled_requests: list[dict[str, Any]] = []
         self.orders: dict[str, ExchangeOrderResult] = {}
@@ -265,6 +267,7 @@ class BinanceOrderAdapter:
     ) -> None:
         self.private_exchange = private_exchange
         self.real_order_submission_enabled = real_order_submission_enabled
+        self.environment: BinanceEnvironment = BinanceEnvironment.PRODUCTION
 
     def submit_order(self, payload: dict[str, Any]) -> ExchangeOrderResult:
         """Barreira de segurança incondicional da FASE 8.4B: ordens reais são bloqueadas."""
@@ -569,19 +572,42 @@ class GuardedLiveExecutionEngine:
                 f"GuardedLiveExecutionEngine aceita apenas ApprovedOrderIntent. Recebido: {type(approved_intent).__name__}"
             )
 
-        # 2. Triple Live Arming
-        if self.config.trading_mode != "live":
-            raise LiveExecutionArmingError(
-                f"trading_mode deve ser 'live' para execução live. Modo atual: '{self.config.trading_mode}'."
-            )
-        if not self.config.live_trading_acknowledged:
-            raise LiveExecutionArmingError(
-                "live_trading_acknowledged é False. Autorização explícita do operador é mandatória."
-            )
-        if not self.config.live_execution_enabled:
-            raise LiveExecutionArmingError(
-                "live_execution_enabled é False. Execução live está desarmada por padrão."
-            )
+        # 2. Environment Sentry & Independent Arming
+        if self.config.binance_environment == BinanceEnvironment.SPOT_TESTNET:
+            if not self.config.testnet_execution_enabled:
+                raise LiveExecutionArmingError(
+                    "testnet_execution_enabled é False. Execução em Binance Spot Testnet está desarmada por padrão."
+                )
+            if isinstance(self.adapter, BinanceOrderAdapter):
+                raise RuntimeError(
+                    "Environment mismatch: BinanceOrderAdapter (produção) não pode ser usado em ambiente SPOT_TESTNET."
+                )
+            adapter_env = getattr(self.adapter, "environment", None)
+            if adapter_env is not None and adapter_env != BinanceEnvironment.SPOT_TESTNET:
+                raise RuntimeError(
+                    f"Environment mismatch: Adapter configurado para ambiente '{adapter_env}', "
+                    f"mas engine está operando em '{self.config.binance_environment}'."
+                )
+        else:
+            # PRODUÇÃO (DEFAULT SEGURO)
+            if self.config.trading_mode != "live":
+                raise LiveExecutionArmingError(
+                    f"trading_mode deve ser 'live' para execução live em produção. Modo atual: '{self.config.trading_mode}'."
+                )
+            if not self.config.live_trading_acknowledged:
+                raise LiveExecutionArmingError(
+                    "live_trading_acknowledged é False. Autorização explícita do operador é mandatória para produção."
+                )
+            if not self.config.live_execution_enabled:
+                raise LiveExecutionArmingError(
+                    "live_execution_enabled é False. Execução live em produção está desarmada por padrão."
+                )
+            adapter_env = getattr(self.adapter, "environment", None)
+            if adapter_env is not None and adapter_env != BinanceEnvironment.PRODUCTION:
+                raise RuntimeError(
+                    f"Environment mismatch: Adapter configurado para ambiente '{adapter_env}', "
+                    f"mas engine está operando em '{self.config.binance_environment}'."
+                )
 
         # 3. Verificação do Micro-Order Cap (Teto de Micro-Ordem)
         cap = Decimal(str(self.config.live_micro_order_max_notional))

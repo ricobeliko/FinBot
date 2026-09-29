@@ -1,7 +1,20 @@
 # FinBot Memory
 
 ## Estado atual
-FASE 8.4C1A — Implementação e Testes do Comando Operacional de Pre-Flight concluída no Notebook.
+FASE 8.4C2A — Integração Binance Spot Testnet e Isolamento de Produção concluída no Notebook.
+
+### Binance Spot Testnet Foundation (FASE 8.4C2A)
+- Módulo `src/finbot/testnet_adapter.py` implementado com o adapter dedicado `BinanceSpotTestnetOrderAdapter` para execução de ordens na Binance Spot Testnet oficial (`https://testnet.binance.vision`):
+  - *Separação Explícita de Ambientes*: Enum `BinanceEnvironment` com valores `PRODUCTION = "production"` e `SPOT_TESTNET = "spot_testnet"`. Production permanece default seguro inviolável.
+  - *Cofre de Credenciais Independente*: Provedor consome o target dedicado `FinBot/Binance/SpotTestnet` no Windows Credential Manager (`WindowsCredentialProvider.for_environment(env)`). Proibição categórica de compartilhamento, cópia ou fallback de credenciais entre ambientes.
+  - *Seleção Visual Clara na GUI e CLI*: `credentials_gui.py` e `credentials.py` adaptados com seletor explícito entre `BINANCE PRODUCTION` e `BINANCE SPOT TESTNET`, exibindo dinamicamente o target ativo e as permissões exigidas para prevenir erro humano.
+  - *Ativação CCXT Sandbox Imediata*: `exchange.set_sandbox_mode(True)` executado imediatamente após instanciação do cliente CCXT, antes de qualquer chamada à exchange.
+  - *Sentry Defensivo Fail-Closed Pré-Escrita*: Função `verify_testnet_endpoint` verifica antes de qualquer `submit_order` ou `cancel_order` que a URL CCXT contém `testnet.binance.vision` e JAMAIS contém `api.binance.com`. Qualquer inconsistência gera `TestnetSentryError` e aborta a operação.
+  - *Armamento Independente da Testnet*: Escritas exigem `binance_environment == SPOT_TESTNET` E `testnet_execution_enabled == True` (default `False`). Flags de produção não liberam testnet e flags de testnet não liberam produção.
+  - *Reutilização Integral do Pipeline de Segurança*: Pipeline existente preservado sem atalhos (`OrderIntent -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> ApprovedOrderIntent -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Binance Testnet`). Micro-order cap (15 USDT), idempotência, clientOrderId determinístico, tratamento de timeout como UNKNOWN e reconciliação obrigatória permanecem ativos.
+  - *Comando Operacional Testnet Pre-Flight*: Módulo `src/finbot/testnet_preflight.py` (`python -m finbot.testnet_preflight`) para checagem pré-voo 100% read-only de credenciais, autenticação, saldos, metadados, filtros e barreiras, emitindo veredito `READY_FOR_TESTNET_ORDER = YES/NO`. Zero ordens enviadas ou canceladas.
+- 372 testes automatizados (360 passando e 12 skipped no `.venv` padrão; 372 passando sem skips no `.venv-research`; zero chamadas de rede). 22 novos testes dedicados em `tests/test_testnet.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Pre-Flight Operational Command (FASE 8.4C1A)
 - Módulo `src/finbot/preflight.py` implementado com o comando operacional `python -m finbot.preflight` para validação pré-voo hermética, segura e unificada antes de qualquer futura micro-ordem real:
@@ -14,7 +27,6 @@ FASE 8.4C1A — Implementação e Testes do Comando Operacional de Pre-Flight co
   - *Pipeline Simulado em Modo DRY_RUN*: Submete a intenção candidata ao pipeline real (`LiveSafetyGate` + `DryRunExecutionEngine`), confirmando conformidade técnica com status `SIMULATED_ACCEPTED`.
   - *Verificação de Barreiras Locais*: Valida localmente que `real_order_submission_enabled == False` (`FINAL_LIVE_BARRIER = PASS`) e que `create_order` e `cancel_order` levantam `LiveTradingBlockedError` (`CREATE_ORDER_BARRIER = PASS`, `CANCEL_ORDER_BARRIER = PASS`).
   - *Critério Rígido de Prontidão*: Emite `READY_FOR_8_4C2 = YES` exclusivamente se todas as 11 checagens forem aprovadas.
-- 350 testes automatizados (338 passando e 12 skipped no `.venv` padrão; zero chamadas de rede). 14 novos testes dedicados em `tests/test_preflight.py` incluindo o sentinela `test_preflight_cannot_submit_or_cancel_real_orders`.
 - Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
 
 ### Guarded Live Order Executor Foundation (FASE 8.4B)
