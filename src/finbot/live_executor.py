@@ -95,9 +95,24 @@ class ExchangeOrderResult:
     average_price: Decimal | None
     fee: Decimal | None = None
     fee_asset: str | None = None
+    limit_price: Decimal | None = None
+    requested_price: Decimal | None = None
     created_at: str = ""
     updated_at: str = ""
     raw_response: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        # Regra Semântica Inviolável (FASE 8.4C2D): Se não houve execução (executed_quantity == 0),
+        # average_price NÃO pode refletir o limit_price ou qualquer outro valor numérico.
+        if self.executed_quantity == Decimal("0") and self.average_price is not None:
+            object.__setattr__(self, "average_price", None)
+
+    @property
+    def average_fill_price(self) -> Decimal | None:
+        """Retorna o preço médio ponderado real de execução, ou None se executed_quantity == 0."""
+        if self.executed_quantity == Decimal("0"):
+            return None
+        return self.average_price
 
 
 @dataclass(frozen=True)
@@ -197,6 +212,7 @@ class FakeExchangeOrderAdapter:
         # Se default_status for FILLED, simula execução completa
         exec_qty = qty if self.default_status == OrderStatus.FILLED else Decimal("0")
         cum_quote = (qty * (px or Decimal("50000.00"))) if self.default_status == OrderStatus.FILLED else Decimal("0")
+        avg_price = (px or Decimal("50000.00")) if self.default_status == OrderStatus.FILLED else None
 
         res = ExchangeOrderResult(
             client_order_id=client_order_id,
@@ -208,7 +224,9 @@ class FakeExchangeOrderAdapter:
             requested_quantity=qty,
             executed_quantity=exec_qty,
             cumulative_quote_quantity=cum_quote,
-            average_price=px,
+            average_price=avg_price,
+            limit_price=px,
+            requested_price=px,
             created_at=now_iso,
             updated_at=now_iso,
             raw_response={"status": self.default_status.value, "orderId": exchange_order_id},
@@ -234,7 +252,11 @@ class FakeExchangeOrderAdapter:
                 requested_quantity=existing.requested_quantity,
                 executed_quantity=existing.executed_quantity,
                 cumulative_quote_quantity=existing.cumulative_quote_quantity,
-                average_price=existing.average_price,
+                average_price=existing.average_price if existing.executed_quantity > Decimal("0") else None,
+                fee=existing.fee,
+                fee_asset=existing.fee_asset,
+                limit_price=existing.limit_price,
+                requested_price=existing.requested_price,
                 created_at=existing.created_at,
                 updated_at=now_iso,
                 raw_response={"status": "CANCELED"},
@@ -549,6 +571,22 @@ class LiveOrderStorage:
             )
             row = cursor.fetchone()
             return dict(row) if row else None
+        finally:
+            if self.db_path != ":memory:":
+                conn.close()
+
+    def get_unreconciled_orders(self) -> list[dict[str, Any]]:
+        """Retorna ordens que ainda não estão em estado terminal (FILLED, CANCELED, REJECTED)."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                """
+                SELECT * FROM live_orders
+                WHERE current_status NOT IN ('FILLED', 'CANCELED', 'REJECTED')
+                ORDER BY created_at ASC
+                """
+            )
+            return [dict(r) for r in cursor.fetchall()]
         finally:
             if self.db_path != ":memory:":
                 conn.close()

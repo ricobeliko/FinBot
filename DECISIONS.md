@@ -898,3 +898,38 @@ Este documento registra de forma simplificada as decisões arquiteturais tomadas
       8. *Testnet Soak*: Validação de resiliência a desconexões e reconexões de rede em ambiente sandbox de exchange real.
     - A fixação de valores numéricos para cada critério será objeto de uma fase específica posterior, vedada qualquer definição arbitrária antecipada.
 - **Motivo**: Concluir o ciclo técnico completo de validação de ordens na Binance sem risco patrimonial e blindar constitucionalmente o projeto contra a liberação prematura de capital real.
+
+---
+
+### D039 — Binance Spot Testnet Soak Runner, Normalized Strategy Capital & Operational Metrics (Fase 8.4C2D)
+- **Status**: Aceito
+- **Data**: FASE 8.4C2D
+- **Contexto**: Com as validações pontuais de execução externa na Binance Spot Testnet concluídas com sucesso na Fase 8.4C2C (BUY MARKET, SELL MARKET, BUY LIMIT e CANCEL), o projeto avança para a estruturação de infraestrutura de soaking operacional contínuo em ambiente de Testnet. Antes de iniciar qualquer operação contínua, identificou-se uma imprecisão semântica nos fills (onde ordens não executadas ou canceladas atribuíam o `limit_price` ao campo `average_price`), a necessidade de dissociar as métricas de performance do saldo fictício massivo da exchange através de um capital de estratégia normalizado (`TESTNET_STRATEGY_CAPITAL`), a estruturação de disjuntores de segurança operacionais (Circuit Breakers) automáticos para pausar novas ordens em caso de anomalias, e a criação de ferramentas read-only para visualização de status e preview sem comandos armados.
+- **Decisão**:
+  - **Correção da Semântica de Fills e Preservação de Preços**:
+    - Se `executed_quantity == 0`, `average_price` / `average_fill_price` é estritamente `None` (ou N/A), jamais assumindo o valor de `limit_price` ou `requested_price`.
+    - Preservação segregada dos campos `requested_price` / `limit_price` e `average_fill_price` em todas as estruturas (`ExchangeOrderResult`, `TestnetOrderExecutionReport`, `TestnetTradeRecord`).
+    - PnL e métricas financeiras jamais contabilizam ordens não executadas ou canceladas como preenchimentos.
+  - **Runner Isolado para Spot Testnet (`src/finbot/testnet_soak.py`)**:
+    - Isolamento explícito e completo do Paper Runner (`paper.py`), evitando contaminação de lógica, estado ou dependências mútuas.
+    - Pipeline completo e defensivo: Market Data -> Strategy -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Reconciliation -> Metrics & Storage.
+    - Sentries invioláveis com princípio fail-closed: exige categoricamente `binance_environment == SPOT_TESTNET`, `testnet_execution_enabled == True`, domínio `testnet.binance.vision` e credenciais `FinBot/Binance/SpotTestnet`. Qualquer divergência bloqueia imediatamente a inicialização.
+  - **Métricas Operacionais e Integridade em Reinício**:
+    - Coleta e persistência contínua em SQLite (`data/finbot_testnet_soak.sqlite3`): `uptime_seconds`, `start_time`, `last_successful_cycle`, `total_cycles`, `successful_cycles`, `failed_cycles`, `unhandled_exceptions`, `api_errors`, `timeouts`, `reconciliations`, `unknown_orders`, `orphan_orders`, `duplicate_blocks`, `orders_created`, `orders_filled`, `orders_canceled`, `orders_rejected`, `partial_fills`.
+    - Reconciliação prévia obrigatória após reinício antes de emitir qualquer nova ordem.
+    - Deduplicação estrita de candles baseada no timestamp do último candle fechado processado.
+    - Zero exposição de segredos, senhas ou API keys nos logs e métricas.
+  - **Métricas Financeiras e Normalização de Capital (`TESTNET_STRATEGY_CAPITAL`)**:
+    - Criação do conceito formal de capital normalizado da estratégia (`testnet_strategy_capital`, default 100.00 USDT), configurável e independente do saldo fictício massivo fornecido pela Binance Testnet.
+    - Cálculo determinístico de métricas de rentabilidade e risco: `starting_equity`, `current_equity`, `realized_pnl`, `unrealized_pnl`, `net_pnl`, `fees`, `gross_return_pct`, `net_return_pct`, `max_drawdown_pct`, `win_rate_pct`, `loss_rate_pct`, `profit_factor`, `average_win`, `average_loss`, `expectancy`, `total_trades`, `closed_trades`.
+    - Acompanhamento de qualidade amostral: `trade_sample_size`, `observation_period_seconds`, `first_trade_at`, `last_trade_at`.
+  - **Disjuntores Operacionais (Safety Circuit Breakers)**:
+    - Disparo automático do disjuntor (`stop_new_orders = True`) sob: ordem UNKNOWN não reconciliada, ordem órfã, falha repetida de autenticação (>=3), mismatch de endpoint/ambiente, divergência de saldo, 5 erros consecutivos, violação do Risk Engine ou falha de persistência.
+    - Leitura e reconciliação continuam operacionais, mas novas ordens são estritamente proibidas até intervenção humana explícita.
+  - **Ferramentas Operacionais Read-Only e Proteção Constitucional**:
+    - `python -m finbot.testnet_soak_status`: comando read-only para inspeção do estado operacional e financeiro do soak.
+    - `python -m finbot.testnet_soak`: por padrão opera em modo PREVIEW (Safe Mode Read-Only).
+    - Proibição absoluta de flags permissivas genéricas (`--live`, `--force`, `--yes`).
+    - Nenhum comando armado de execução automática fornecido nesta fase.
+- **Motivo**: Assegurar integridade estatística, observabilidade total, confiabilidade operacional e proteção estrita antes do início do soaking na Testnet, sem qualquer risco a fundos reais.
+

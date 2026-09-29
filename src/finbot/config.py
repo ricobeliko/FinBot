@@ -55,6 +55,8 @@ class Config:
     live_execution_enabled: bool = False
     live_micro_order_max_notional: float = 15.0
     real_order_submission_enabled: bool = False
+    testnet_strategy_capital: float = 100.0
+    testnet_soak_db_path: str = "data/finbot_testnet_soak.sqlite3"
     binance_api_key: str = field(default="", repr=False)
     binance_api_secret: str = field(default="", repr=False)
 
@@ -117,6 +119,15 @@ def get_config() -> Config:
     raw_testnet_exec = os.getenv("TESTNET_EXECUTION_ENABLED", "false").strip().lower()
     testnet_execution_enabled = raw_testnet_exec in ("1", "true", "yes")
 
+    raw_strategy_capital = os.getenv("TESTNET_STRATEGY_CAPITAL", "100.0").strip()
+    try:
+        testnet_strategy_capital = float(raw_strategy_capital)
+    except ValueError:
+        testnet_strategy_capital = 100.0
+
+    raw_soak_db = os.getenv("TESTNET_SOAK_DB_PATH", "data/finbot_testnet_soak.sqlite3").strip()
+    testnet_soak_db_path = raw_soak_db if raw_soak_db else "data/finbot_testnet_soak.sqlite3"
+
     return Config(
         trading_mode=trading_mode,
         binance_environment=binance_env,
@@ -126,5 +137,7 @@ def get_config() -> Config:
         live_execution_enabled=live_execution_enabled,
         live_micro_order_max_notional=live_micro_order_max_notional,
         real_order_submission_enabled=real_order_submission_enabled,
+        testnet_strategy_capital=testnet_strategy_capital,
+        testnet_soak_db_path=testnet_soak_db_path,
     )
 

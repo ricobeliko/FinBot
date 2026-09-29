@@ -336,8 +336,30 @@ class BinanceSpotTestnetOrderAdapter:
         exec_qty = Decimal(str(raw.get("filled") or info.get("executedQty") or "0"))
         cum_quote = Decimal(str(raw.get("cost") or info.get("cummulativeQuoteQty") or "0"))
 
-        avg_price_raw = raw.get("average") or raw.get("price") or info.get("price")
-        avg_price = Decimal(str(avg_price_raw)) if avg_price_raw is not None else None
+        limit_price_raw = raw.get("price") or info.get("price")
+        limit_price: Decimal | None = None
+        if limit_price_raw is not None:
+            try:
+                lp = Decimal(str(limit_price_raw))
+                if lp > Decimal("0"):
+                    limit_price = lp
+            except Exception:
+                limit_price = None
+
+        avg_price_raw = raw.get("average")
+        avg_price: Decimal | None = None
+        if exec_qty > Decimal("0"):
+            if avg_price_raw is not None:
+                try:
+                    ap = Decimal(str(avg_price_raw))
+                    if ap > Decimal("0"):
+                        avg_price = ap
+                except Exception:
+                    pass
+            if avg_price is None and cum_quote > Decimal("0"):
+                avg_price = cum_quote / exec_qty
+        else:
+            avg_price = None
 
         fee_val: Decimal | None = None
         fee_asset: str | None = None
@@ -368,6 +390,8 @@ class BinanceSpotTestnetOrderAdapter:
             average_price=avg_price,
             fee=fee_val,
             fee_asset=fee_asset,
+            limit_price=limit_price,
+            requested_price=limit_price,
             created_at=created_at,
             updated_at=now_iso,
             raw_response=raw,

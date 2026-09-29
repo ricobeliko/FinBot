@@ -415,7 +415,99 @@ Antes de qualquer escrita em ambiente de Produção com fundos reais, será obri
 7. *Paper Trading Prolongado (Paper Soak)*: Conclusão do soaking ininterrupto no PC Forte;
 8. *Testnet Soak*: Resiliência a desconexões de rede e reconexões em sandbox da exchange.
 
-*Os thresholds numéricos para cada critério serão definidos em fase posterior específica de governança.*
+418: *Os thresholds numéricos para cada critério serão definidos em fase posterior específica de governança.*
+419: 
+420: ---
+421: 
+422: ## 17. Procedimentos Operacionais: Binance Spot Testnet Soak & Métricas (Fase 8.4C2D)
+423: 
+424: ### 17.1 Visão Geral e Princípios
+425: A Fase 8.4C2D prepara o FinBot para operação prolongada (soaking) na Binance Spot Testnet com foco em:
+426: - Estabilidade e confiabilidade de longo prazo;
+427: - Observabilidade total e persistência de métricas operacionais e financeiras;
+428: - Disjuntores automáticos de segurança (Circuit Breakers) para proteção do processo;
+429: - Normalização de capital através do conceito de `TESTNET_STRATEGY_CAPITAL` (independente do saldo massivo da exchange);
+430: - Coleta de evidências para o futuro framework `LIVE_CAPITAL_GATE`.
+431: 
+432: **IMPORTANTE**:
+433: - **NENHUMA OPERAÇÃO CONTÍNUA AUTOMÁTICA É INICIADA SEM AUTORIZAÇÃO HUMANA EXPRESSA.**
+434: - **DINHEIRO REAL PERMANECE INVIOLÁVEL: `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`.**
+435: 
+436: ### 17.2 Comando READ-ONLY de Status: `finbot.testnet_soak_status`
+437: Comando seguro, estritamente de leitura (sem mutação e sem envio de ordens):
+438: ```powershell
+439: python -m finbot.testnet_soak_status
+440: # ou diretamente via executável do ambiente virtual:
+441: .\.venv\Scripts\python.exe -m finbot.testnet_soak_status
+442: ```
+443: 
+444: **Saída esperada**:
+445: ```text
+446: ================================================================================
+447:                       FINBOT — TESTNET SOAK STATUS REPORT
+448: ================================================================================
+449: 
+450: [OPERATIONAL HEALTH]
+451:   STATUS                       : READY_PREVIEW / STOPPED
+452:   CIRCUIT_BREAKER_TRIPPED      : NO
+453:   UPTIME                       : 0s (0.0h)
+454:   TOTAL_CYCLES                 : 0
+455:   SUCCESSFUL_CYCLES            : 0
+456:   FAILED_CYCLES                : 0
+457:   API_ERRORS                   : 0
+458:   UNKNOWN_ORDERS               : 0
+459:   ORPHAN_ORDERS                : 0
+460:   DUPLICATE_BLOCKS             : 0
+461: 
+462: [FINANCIAL & STRATEGY METRICS]
+463:   STRATEGY_CAPITAL             : 100.00 USDT
+464:   STARTING_EQUITY              : 100.00 USDT
+465:   CURRENT_EQUITY               : 100.00 USDT
+466:   REALIZED_PNL                 : 0.00 USDT
+467:   UNREALIZED_PNL               : 0.00 USDT
+468:   NET_PNL                      : 0.00 USDT
+469:   NET_RETURN                   : 0.00%
+470:   MAX_DRAWDOWN                 : 0.00%
+471:   TOTAL_TRADES                 : 0
+472:   CLOSED_TRADES                : 0
+473: 
+474: [PRODUCTION BARRIER SENTINEL]
+475:   TARGET_ENVIRONMENT           : BINANCE_SPOT_TESTNET
+476:   PRODUCTION_ORDERS_SENT       : 0
+477:   PRODUCTION_WRITE_ENABLED     : NO
+478: ================================================================================
+479: ```
+480: 
+481: ### 17.3 Comando READ-ONLY de Preview: `finbot.testnet_soak`
+482: Por padrão, o entrypoint operacional do soak roda em modo **PREVIEW (Safe Mode Read-Only)**.
+483: Ele avalia dados, verifica sentries, confere saldo e simula um ciclo sem enviar qualquer ordem à Testnet:
+484: ```powershell
+485: python -m finbot.testnet_soak
+486: # ou:
+487: .\.venv\Scripts\python.exe -m finbot.testnet_soak
+488: ```
+489: 
+490: ### 17.4 Safety Circuit Breakers (Disjuntores Operacionais)
+491: O runner do Testnet Soak monitora e desarma automaticamente (`stop_new_orders = True`) sob:
+492: 1. **Ordem UNKNOWN**: Qualquer timeout ou resposta ambígua da exchange não confirmada;
+493: 2. **Ordem Órfã**: Inconsistência entre ordens locais e na exchange;
+494: 3. **Falhas Repetidas de Autenticação**: 3 tentativas consecutivas com erro de credenciais;
+495: 4. **Mismatch de Endpoint / Ambiente**: Detecção de qualquer chamada fora de `testnet.binance.vision`;
+496: 5. **Divergência Crítica de Saldo**: Inconsistência entre saldo local e saldo da exchange;
+497: 6. **Erros Operacionais Consecutivos**: 5 falhas operacionais consecutivas;
+498: 7. **Violação do Risk Engine**: Violação de limites de risco configurados;
+499: 8. **Falha de Persistência**: Falha de I/O no banco SQLite local.
+500: 
+501: Quando disparado:
+502: - `STOP_NEW_ORDERS = TRUE`;
+503: - Reconciliação e leitura continuam ativas para preservar integridade de auditoria;
+504: - Nenhuma nova ordem é emitida até resolução e intervenção explícita do operador humano.
+505: 
+506: ### 17.5 Normalização de Capital (`TESTNET_STRATEGY_CAPITAL`)
+507: A Binance Spot Testnet credita saldos fictícios astronômicos (ex: 5.000.000 USDT ou centenas de BTC).
+508: Para evitar a distorção completa de métricas de retorno, drawdown e dimensionamento, o FinBot utiliza o conceito de **`TESTNET_STRATEGY_CAPITAL`** (default: `100.00 USDT`).
+509: Todas as métricas financeiras (equity, retorno líquido, drawdown, win rate) são calculadas em relação a essa base normalizada e aos trades realizados pela estratégia, assegurando fidelidade estatística para o futuro `LIVE_CAPITAL_GATE`.
+
 
 
 

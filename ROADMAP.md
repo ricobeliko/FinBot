@@ -477,8 +477,8 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
   - `PRODUCTION_ORDERS_SENT = 0`
   - `PRODUCTION_WRITE_ENABLED = NO`
 
-##### FASE 8.4C2C — Binance Spot Testnet Execution Lifecycle Validation (Em Implementação / Validação Operacional)
-- **Status**: EM IMPLEMENTAÇÃO / EM VALIDAÇÃO OPERACIONAL
+##### FASE 8.4C2C — Binance Spot Testnet Execution Lifecycle Validation (Concluída)
+- **Status**: CONCLUÍDA
 - [x] Extensão unificada do comando operacional `src/finbot/testnet_order_validation.py` suportando `--action` (`sell_market`, `limit_cancel`, `buy_market`)
 - [x] Modo Dry Preview padrão (100% read-only) exibindo todos os metadados, filtros, notional e preço de referência com garantia `TESTNET_WRITE_EXECUTED = NO`
 - [x] Ciclo 1: Implementação do fluxo `SELL MARKET` (dimensionamento dinâmico a partir do saldo livre de BTC, teto estrito na quantidade adquirida de `0.00008000 BTC`, filtros `stepSize`, `minQty` e `minNotional`)
@@ -488,10 +488,29 @@ Este documento descreve as etapas de evolução sequencial do FinBot. Cada fase 
 - [x] Tratamento de falha ambígua (`TIMEOUT -> UNKNOWN`, sem retry automático) e reconciliação obrigatória
 - [x] Sentries defensivos pré-escrita (ambiente `SPOT_TESTNET`, adapter de Testnet, endpoint `testnet.binance.vision`, proibição de `api.binance.com`, target `FinBot/Binance/SpotTestnet`)
 - [x] Adição de 19 testes focados em `tests/test_testnet_order_validation.py` (totalizando 391 testes no projeto)
-- [ ] Execução assistida do Preview Read-Only de SELL MARKET na Spot Testnet
-- [ ] Execução operacional armada de SELL MARKET na Spot Testnet e reconciliação de saldo
-- [ ] Execução assistida do Preview Read-Only de LIMIT + CANCEL na Spot Testnet
-- [ ] Execução operacional armada de LIMIT + CANCEL na Spot Testnet e reconciliação final
+- [x] Execução assistida do Preview Read-Only de SELL MARKET na Spot Testnet
+- [x] Execução operacional armada de SELL MARKET na Spot Testnet: `FILLED`, reconciliação confirmada
+- [x] Execução assistida do Preview Read-Only de LIMIT + CANCEL na Spot Testnet
+- [x] Execução operacional armada de LIMIT + CANCEL na Spot Testnet: `ACKNOWLEDGED` -> `CANCEL_PENDING` -> `CANCELED`, reconciliação confirmada
+- [x] Inviolabilidade de produção mantida: `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`
+
+##### FASE 8.4C2D — Binance Spot Testnet Soak & Operational Metrics (Em Implementação / Validação Operacional)
+- **Status**: EM IMPLEMENTAÇÃO
+- [x] Correção de semântica de fills: `average_price = None` quando `executed_quantity == 0` (ordem cancelada não executada não contamina preço médio nem PnL)
+- [x] Preservação segregada de `requested_price` / `limit_price` e `average_fill_price`
+- [x] Implementação do Testnet Soak Runner isolado (`src/finbot/testnet_soak.py`) sem contaminação do Paper Runner
+- [x] Normalização de capital da estratégia (`testnet_strategy_capital`, default 100.00 USDT) independente do saldo fictício fornecido pela Binance Testnet
+- [x] Coleta e persistência contínua de métricas operacionais em SQLite (`finbot_testnet_soak.sqlite3`): uptime, cycles, unhandled exceptions, api errors, timeouts, reconciliations, unknown orders, orphan orders, duplicate blocks, orders created/filled/canceled/rejected, partial fills
+- [x] Coleta e cálculo determinístico de métricas financeiras: starting/current equity, realized/unrealized/net PnL, fees, gross/net return, max drawdown, win/loss rate, profit factor, avg win/loss, expectancy, total trades
+- [x] Registro de qualidade amostral: trade sample size, observation period, first/last trade (sem aprovação automática de LIVE_CAPITAL_GATE)
+- [x] Disjuntores operacionais automáticos (Safety Circuit Breakers): STOP_NEW_ORDERS = TRUE em caso de UNKNOWN order, orphan order, falhas repetidas de autenticação, mismatch de ambiente, divergência crítica de saldo, 5 erros consecutivos, violação do Risk Engine ou falha de persistência
+- [x] Reconciliação prévia obrigatória após reinício antes de emitir qualquer nova ordem
+- [x] Deduplicação estrita de candles (prevenção de ordens duplicadas no mesmo candle ou após restart)
+- [x] Comando operacional read-only de status `python -m finbot.testnet_soak_status` sem exposição de segredos
+- [x] Entrypoint do soak `python -m finbot.testnet_soak` operando por padrão em modo PREVIEW (Safe Mode Read-Only)
+- [x] Isolamento categórico de produção com sentries fail-closed
+- [x] Adição de 17 testes focados em `tests/test_testnet_soak.py` (totalizando 408 testes na suíte padrão)
+- [ ] Início assistido de operação contínua do Testnet Soak (aguardando revisão humana; zero ordens externas enviadas durante a implementação)
 
 > **DIRETRIZ CONSTITUCIONAL DE CAPITAL REAL (`LIVE_CAPITAL_GATE`)**:
 > **DINHEIRO REAL NÃO SERÁ UTILIZADO APENAS PORQUE O PIPELINE TÉCNICO ESTÁ PRONTO.**

@@ -153,6 +153,24 @@ class TestnetOrderExecutionReport:
     lifecycle_transitions: list[str] = field(default_factory=list)
     error_messages: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        if self.executed_quantity == Decimal("0"):
+            self.average_price = None
+
+    @property
+    def limit_price(self) -> Decimal | None:
+        return self.price
+
+    @property
+    def requested_price(self) -> Decimal | None:
+        return self.price
+
+    @property
+    def average_fill_price(self) -> Decimal | None:
+        if self.executed_quantity == Decimal("0"):
+            return None
+        return self.average_price
+
 
 # =============================================================================
 # CÁLCULOS DINÂMICOS DE CANDIDATAS (BUY, SELL, LIMIT)
@@ -901,7 +919,8 @@ def print_report(report: TestnetOrderExecutionReport) -> None:
     print(f"ORDER_ID                       : {report.order_id or 'NONE'}")
     print(f"ORDER_STATUS                   : {report.order_status}")
     print(f"EXECUTED_QUANTITY              : {report.executed_quantity:.8f} BTC")
-    avg_str = f"{report.average_price:.2f} USDT" if report.average_price is not None else "N/A"
+    avg_str = f"{report.average_fill_price:.2f} USDT" if report.average_fill_price is not None else "N/A"
+    print(f"AVERAGE_FILL_PRICE             : {avg_str}")
     print(f"AVERAGE_PRICE                  : {avg_str}")
     if report.cancel_status is not None:
         print(f"CANCEL_STATUS                  : {report.cancel_status}")

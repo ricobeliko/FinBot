@@ -3,20 +3,37 @@
 ## Estado atual
 FASE 8.4C2A — Integração Binance Spot Testnet e Isolamento de Produção CONCLUÍDA.
 FASE 8.4C2B — Validação Operacional da Binance Spot Testnet CONCLUÍDA.
-FASE 8.4C2C — Validação do Ciclo de Vida de Execução na Binance Spot Testnet EM IMPLEMENTAÇÃO / EM VALIDAÇÃO OPERACIONAL.
+FASE 8.4C2C — Validação do Ciclo de Vida de Execução na Binance Spot Testnet CONCLUÍDA OPERACIONALMENTE.
+FASE 8.4C2D — Binance Spot Testnet Soak & Métricas Operacionais EM IMPLEMENTAÇÃO.
+
+### Spot Testnet Soak & Métricas Operacionais (FASE 8.4C2D)
+- *Correção de Qualidade de Dados (Fills Semantics)*:
+  - Garantia de que `average_price` / `average_fill_price` é estritamente `None` (ou N/A) quando `executed_quantity == 0` (ordem cancelada não executada não contamina preço médio nem PnL).
+  - Preservação segregada de `requested_price` / `limit_price` e `average_fill_price` em todas as estruturas de dados.
+- *Testnet Soak Runner Isolado (`src/finbot/testnet_soak.py`)*:
+  - Totalmente desacoplado do Paper Runner (`paper.py`), com pipeline completo e fail-closed: Market Data -> Strategy -> Risk Engine -> MarketFilterGuard -> LiveSafetyGate -> GuardedLiveExecutionEngine -> BinanceSpotTestnetOrderAdapter -> Reconciliação -> Storage.
+  - Exigência mandatória de `binance_environment == SPOT_TESTNET` e `testnet_execution_enabled == True`.
+- *Normalização de Capital da Estratégia (`TESTNET_STRATEGY_CAPITAL`)*:
+  - Criação do parâmetro `testnet_strategy_capital` (default 100.00 USDT) para normalizar métricas de rentabilidade e risco, evitando distorções causadas pelo saldo fictício enorme da exchange.
+- *Métricas Operacionais e Financeiras Persistentes*:
+  - Tabela append-only e checkpoints em SQLite (`data/finbot_testnet_soak.sqlite3`): uptime, cycles, exceptions, api errors, timeouts, reconciliações, unknown orders, orphan orders, duplicate blocks, orders created/filled/canceled/rejected, partial fills.
+  - Cálculo determinístico de equity inicial/atual, realized/unrealized/net PnL, taxas, retorno bruto/líquido, max drawdown, win/loss rate, profit factor, média de ganhos/perdas, expectancy, total trades.
+  - Rastreamento amostral: `trade_sample_size`, `observation_period_seconds`, `first_trade_at`, `last_trade_at` (sem aprovação automática de gate).
+- *Disjuntores de Segurança (Safety Circuit Breakers)*:
+  - Disparo de `stop_new_orders = True` sob ordens UNKNOWN não reconciliadas, ordens órfãs, falhas repetidas de autenticação, mismatch de endpoint/ambiente, divergência de saldo, 5 erros consecutivos, violação do Risk Engine ou falha de banco.
+  - Leitura e reconciliação continuam operacionais, mas novas ordens são travadas até intervenção do operador.
+- *Comandos Operacionais Read-Only*:
+  - `python -m finbot.testnet_soak_status`: visualização tabular do status operacional e financeiro do soak sem expor segredos.
+  - `python -m finbot.testnet_soak`: entrypoint por padrão em modo PREVIEW (Safe Mode Read-Only).
+- 408 testes automatizados (396 passando e 12 skipped no `.venv` padrão; zero chamadas de rede externas nos testes). 17 novos testes focados em `tests/test_testnet_soak.py`.
+- Preservação integral do ambiente operacional e do Paper Soak Test no PC Forte.
 
 ### Spot Testnet Execution Lifecycle Validation (FASE 8.4C2C)
-- Módulo `src/finbot/testnet_order_validation.py` estendido para cobrir os ciclos completos de execução na Binance Spot Testnet (`https://testnet.binance.vision`):
-  - *Seletor de Ações*: Suporte aos comandos `--action sell_market` (default conservador), `--action limit_cancel` e `--action buy_market`.
-  - *Modo Read-Only por Padrão (Dry Preview)*: Sem flag `--confirm-testnet-order`, gera visualização antecipada de todos os parâmetros com `TESTNET_WRITE_EXECUTED = NO` e aborta antes de qualquer mutação.
-  - *Ciclo 1 — SELL MARKET*: Dimensionamento dinâmico baseado no saldo livre de BTC (`get_balances`), limitado ao teto adquirido na Fase 8.4C2B (`0.00008000 BTC`), sanitizado pelo `stepSize` e validado contra `minQty` e `minNotional` em relação ao ticker ao vivo.
-  - *Ciclo 2 & 3 — LIMIT + CANCEL*: Ordem limite de compra posicionada 15% abaixo do mercado alinhada a `tickSize` com notional de ~6 USDT fictícios. Submissão, reconciliação de estado aberto no book (`SUBMITTED`/`ACKNOWLEDGED`), verificação sentinela contra fill prévio, submissão de cancelamento controlado e reconciliação determinística para `CANCELED`.
-  - *Proteção contra Fill Antecipado*: Se a ordem preencher na exchange antes do cancelamento (`FILLED`), não tenta cancelar cegamente; detecta a transição e reconcilia o estado real.
-  - *Idempotência e Prevenção de Colisão*: Geração determinística de `correlation_id` e `clientOrderId` únicos por operação, proibindo terminantemente a reutilização de identificadores da BUY anterior. Falhas de rede geram `UNKNOWN` sem retry automático.
-  - *Sentries Defensivos Pré-Escrita*: Revalidação de ambiente `SPOT_TESTNET`, adapter Testnet, endpoint `testnet.binance.vision` (proibição de `api.binance.com`) e target `FinBot/Binance/SpotTestnet`.
-  - *Framework Constitucional LIVE_CAPITAL_GATE*: Formalização das regras de governança e critérios objetivos (estabilidade, confiabilidade de execução, drawdown, quantidade mínima de operações, resultado líquido após custos, validação fora da amostra, Paper Soak e Testnet Soak) antes de qualquer liberação de capital real em Produção.
-- 391 testes automatizados (379 passando e 12 skipped no `.venv` padrão; 391 passando 100% no `.venv-research`; zero chamadas de rede externas nos testes). 19 testes focados em `tests/test_testnet_order_validation.py`.
-- Preservação integral do ambiente operacional e do Paper Soak Test de 72 horas no PC Forte.
+- Validações externas na Binance Spot Testnet concluídas com sucesso pelo operador:
+  1. `BUY MARKET`: `FILLED`, reconciliação confirmada.
+  2. `SELL MARKET`: `FILLED`, reconciliação confirmada.
+  3. `BUY LIMIT`: `ACKNOWLEDGED`, reconciliada repetidamente enquanto aberta, `CANCEL_PENDING`, `CANCELED`, reconciliação confirmada.
+- Produção permaneceu 100% inviolada: `PRODUCTION_ORDERS_SENT = 0`, `PRODUCTION_WRITE_ENABLED = NO`.
 
 ### Spot Testnet Operational Validation (FASE 8.4C2B)
 - Primeira ordem externa Spot Testnet executada com sucesso e confirmada pelo operador:
